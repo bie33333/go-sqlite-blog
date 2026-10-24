@@ -28,10 +28,9 @@ func main() {
 	slog.SetDefault(logger)
 
 	if cfg.Database.Reset {
-		slog.Info("Resetting database")
-		// delete database file
-		err = os.Remove(cfg.Database.Source)
-		if err != nil {
+		slog.Info("Resetting database", "source", cfg.Database.Source)
+		// delete database file (不存在时忽略，保证首次启动 --database-reset 也能工作)
+		if err := os.Remove(cfg.Database.Source); err != nil && !os.IsNotExist(err) {
 			slog.Error("main: Error deleting database file", "error", err)
 			os.Exit(1)
 		}
