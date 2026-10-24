@@ -7,6 +7,7 @@
 
 <section class="card" id="comments">
     <h2>评论（{{len .Comments}}）</h2>
+    {{if .Error}}<p class="alert error">{{.Error}}</p>{{end}}
     {{if .Comments}}
         {{range .Comments}}
         <div class="article-item">
@@ -16,6 +17,21 @@
         {{end}}
     {{else}}
         <p class="excerpt">还没有评论，来说两句吧。</p>
+    {{end}}
+
+    {{if .LoggedIn}}
+    <form method="POST" action="/post/{{.ArticleID}}/comment" style="margin-top:1.25rem">
+        <div class="form-group">
+            <label for="comment-content">发表评论</label>
+            <textarea id="comment-content" name="content" required style="min-height:100px"></textarea>
+        </div>
+        <div class="btn-row">
+            <button class="btn primary" style="width:auto" type="submit">提交评论</button>
+            <span class="excerpt">新评论默认为“待审核”状态。</span>
+        </div>
+    </form>
+    {{else}}
+    <p class="hint"><a href="/login">登录</a>后可以发表评论。</p>
     {{end}}
 </section>
 {{end}}

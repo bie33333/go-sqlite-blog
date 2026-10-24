@@ -34,6 +34,13 @@ LEFT JOIN article_revisions r
 LEFT JOIN users u ON u.id = r.edited_by
 WHERE a.id = ?`
 
+const listCommentsQuery = `
+SELECT id, article_id, user_id, COALESCE(author_name, ''), content,
+       strftime('%Y-%m-%d %H:%M', created_at), approved
+FROM comments
+WHERE article_id = ?
+ORDER BY created_at ASC, id ASC`
+
 // ListArticles 渲染首页文章列表
 func ListArticles(a *middleware.Adapter) error {
 	if a.Request.URL.Path != "/" {
@@ -74,9 +81,7 @@ func ShowArticle(a *middleware.Adapter) error {
 	}
 
 	env := models.EnvFromAdapter(a)
-	var article models.Article
-	err = env.DB.QueryRowContext(env.Ctx, getArticleQuery, id).
-		Scan(&article.ID, &article.Title, &article.Content, &article.CreatedAt, &article.Author)
+	article, err := getArticle(env, id)
 	if err == sql.ErrNoRows {
 		return notFound(a, "文章不存在")
 	}
@@ -84,11 +89,102 @@ func ShowArticle(a *middleware.Adapter) error {
 		return fmt.Errorf("ShowArticle: %w", err)
 	}
 
+	comments, err := listComments(env, id)
+	if err != nil {
+		return fmt.Errorf("ShowArticle: %w", err)
+	}
+
+	return renderPostPage(a, article, comments, "")
+}
+
+// getArticle 查询单篇文章
+func getArticle(env *models.Env, id int64) (models.Article, error) {
+	var article models.Article
+	err := env.DB.QueryRowContext(env.Ctx, getArticleQuery, id).
+		Scan(&article.ID, &article.Title, &article.Content, &article.CreatedAt, &article.Author)
+	return article, err
+}
+
+// listComments 查询文章下的评论
+func listComments(env *models.Env, articleID int64) ([]models.Comment, error) {
+	rows, err := env.DB.QueryContext(env.Ctx, listCommentsQuery, articleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	comments := make([]models.Comment, 0)
+	for rows.Next() {
+		var (
+			comment models.Comment
+			userID  sql.NullInt64
+		)
+		if err := rows.Scan(&comment.ID, &comment.ArticleID, &userID, &comment.AuthorName,
+			&comment.Content, &comment.CreatedAt, &comment.Approved); err != nil {
+			return nil, err
+		}
+		if userID.Valid {
+			comment.UserID = &userID.Int64
+		}
+		comments = append(comments, comment)
+	}
+	return comments, rows.Err()
+}
+
+// renderPostPage 渲染详情页（含评论列表与错误提示）
+func renderPostPage(a *middleware.Adapter, article models.Article, comments []models.Comment, message string) error {
 	return renderPage(a, "post.html", ViewData{
 		Title:     article.Title,
 		Article:   article,
 		ArticleID: article.ID,
+		Comments:  comments,
+		Error:     message,
 	})
+}
+
+// CreateComment 提交评论（需登录）
+func CreateComment(a *middleware.Adapter) error {
+	r := a.Request
+
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		return notFound(a, "文章不存在")
+	}
+
+	session, ok := currentSession(r)
+	if !ok {
+		http.Redirect(a.ResponseWriter, r, "/login", http.StatusSeeOther)
+		return nil
+	}
+
+	env := models.EnvFromAdapter(a)
+	article, err := getArticle(env, id)
+	if err == sql.ErrNoRows {
+		return notFound(a, "文章不存在")
+	}
+	if err != nil {
+		return fmt.Errorf("CreateComment: %w", err)
+	}
+
+	content := strings.TrimSpace(r.FormValue("content"))
+	if content == "" {
+		comments, err := listComments(env, id)
+		if err != nil {
+			return fmt.Errorf("CreateComment: %w", err)
+		}
+		return renderPostPage(a, article, comments, "评论内容不能为空")
+	}
+
+	// comments.approved 默认 0（待审核），这里显式写入待审核状态
+	_, err = env.DB.ExecContext(env.Ctx,
+		`INSERT INTO comments (article_id, user_id, author_name, content, approved) VALUES (?, ?, ?, ?, 0)`,
+		id, session.UserID, session.Username, content)
+	if err != nil {
+		return fmt.Errorf("CreateComment: %w", err)
+	}
+
+	http.Redirect(a.ResponseWriter, r, fmt.Sprintf("/post/%d#comments", id), http.StatusSeeOther)
+	return nil
 }
 
 // notFound 返回 404 页面
