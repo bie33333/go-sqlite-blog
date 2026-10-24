@@ -36,7 +36,6 @@ WHERE a.id = ?`
 
 // ListArticles 渲染首页文章列表
 func ListArticles(a *middleware.Adapter) error {
-	w := a.ResponseWriter
 	if a.Request.URL.Path != "/" {
 		return notFound(a, "页面不存在")
 	}
@@ -61,9 +60,8 @@ func ListArticles(a *middleware.Adapter) error {
 		return fmt.Errorf("ListArticles: %w", err)
 	}
 
-	return renderPage(w, "index.html", ViewData{
+	return renderPage(a, "index.html", ViewData{
 		Title:    "首页",
-		LoggedIn: isLoggedIn(a.Request),
 		Articles: articles,
 	})
 }
@@ -86,9 +84,8 @@ func ShowArticle(a *middleware.Adapter) error {
 		return fmt.Errorf("ShowArticle: %w", err)
 	}
 
-	return renderPage(a.ResponseWriter, "post.html", ViewData{
+	return renderPage(a, "post.html", ViewData{
 		Title:     article.Title,
-		LoggedIn:  isLoggedIn(a.Request),
 		Article:   article,
 		ArticleID: article.ID,
 	})
@@ -97,10 +94,9 @@ func ShowArticle(a *middleware.Adapter) error {
 // notFound 返回 404 页面
 func notFound(a *middleware.Adapter, message string) error {
 	a.ResponseWriter.WriteHeader(http.StatusNotFound)
-	return renderPage(a.ResponseWriter, "404.html", ViewData{
-		Title:    "404",
-		LoggedIn: isLoggedIn(a.Request),
-		Error:    message,
+	return renderPage(a, "404.html", ViewData{
+		Title: "404",
+		Error: message,
 	})
 }
 
@@ -112,4 +108,78 @@ func excerpt(content string, limit int) string {
 	}
 	runes := []rune(text)
 	return string(runes[:limit]) + "…"
+}
+
+// ShowEditor 渲染发文表单（需登录）
+func ShowEditor(a *middleware.Adapter) error {
+	return renderPage(a, "editor.html", ViewData{Title: "写文章"})
+}
+
+// CreateArticle 处理发文表单（需登录）
+func CreateArticle(a *middleware.Adapter) error {
+	r := a.Request
+
+	if err := r.ParseForm(); err != nil {
+		return fmt.Errorf("CreateArticle: %w", err)
+	}
+
+	session, ok := currentSession(r)
+	if !ok {
+		// RequireLogin 已挡住，这里只是兜底
+		http.Redirect(a.ResponseWriter, r, "/login", http.StatusSeeOther)
+		return nil
+	}
+
+	title := strings.TrimSpace(r.FormValue("title"))
+	content := strings.TrimSpace(r.FormValue("content"))
+
+	if title == "" || content == "" {
+		return renderPage(a, "editor.html", ViewData{
+			Title:       "写文章",
+			Error:       "标题和正文都不能为空",
+			FormTitle:   title,
+			FormContent: content,
+		})
+	}
+	if utf8.RuneCountInString(title) > 200 {
+		return renderPage(a, "editor.html", ViewData{
+			Title:       "写文章",
+			Error:       "标题不能超过 200 个字符",
+			FormTitle:   title,
+			FormContent: content,
+		})
+	}
+
+	env := models.EnvFromAdapter(a)
+	tx, err := env.DB.BeginTx(env.Ctx, nil)
+	if err != nil {
+		return fmt.Errorf("CreateArticle: %w", err)
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(env.Ctx,
+		`INSERT INTO articles (title, content) VALUES (?, ?)`, title, content)
+	if err != nil {
+		return fmt.Errorf("CreateArticle: %w", err)
+	}
+
+	articleID, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("CreateArticle: %w", err)
+	}
+
+	// articles 表没有作者字段，用 article_revisions 的初版记录保存作者
+	_, err = tx.ExecContext(env.Ctx,
+		`INSERT INTO article_revisions (article_id, title, content, edited_by) VALUES (?, ?, ?, ?)`,
+		articleID, title, content, session.UserID)
+	if err != nil {
+		return fmt.Errorf("CreateArticle: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("CreateArticle: %w", err)
+	}
+
+	http.Redirect(a.ResponseWriter, r, fmt.Sprintf("/post/%d", articleID), http.StatusSeeOther)
+	return nil
 }

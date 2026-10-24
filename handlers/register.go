@@ -12,7 +12,7 @@ import (
 
 // ShowRegister renders the register page
 func ShowRegister(a *middleware.Adapter) error {
-	return renderPage(a.ResponseWriter, "register.html", ViewData{Title: "注册"})
+	return renderPage(a, "register.html", ViewData{Title: "注册"})
 }
 
 // TryRegister handles the registration form submission
@@ -33,13 +33,13 @@ func TryRegister(a *middleware.Adapter) error {
 			message = err.Error()
 		}
 		// 表单错误直接回到注册页展示，避免返回 500
-		return renderPage(a.ResponseWriter, "register.html", ViewData{
+		return renderPage(a, "register.html", ViewData{
 			Title: "注册",
 			Error: message,
 		})
 	}
 
-	return renderPage(a.ResponseWriter, "register.html", ViewData{
+	return renderPage(a, "register.html", ViewData{
 		Title:   "注册",
 		Message: "注册成功，请前往登录",
 	})

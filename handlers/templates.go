@@ -3,9 +3,9 @@ package handlers
 import (
 	"fmt"
 	"html/template"
-	"net/http"
 	"sync"
 
+	"github.com/AndreHeber/go-sqlite-blog/middleware"
 	"github.com/AndreHeber/go-sqlite-blog/models"
 )
 
@@ -26,6 +26,10 @@ type ViewData struct {
 	Article   models.Article
 	Comments  []models.Comment
 	ArticleID int64
+
+	// 表单回显
+	FormTitle   string
+	FormContent string
 }
 
 // templateCache 缓存已解析的模板，避免每次请求都读盘。
@@ -49,15 +53,23 @@ func loadTemplates(page string) (*template.Template, error) {
 	return tmpl, nil
 }
 
-// renderPage 渲染带有统一布局的页面。
-func renderPage(w http.ResponseWriter, page string, data ViewData) error {
+// renderPage 渲染带有统一布局的页面，并自动填充登录态信息。
+func renderPage(a *middleware.Adapter, page string, data ViewData) error {
 	tmpl, err := loadTemplates(page)
 	if err != nil {
 		return err
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := tmpl.ExecuteTemplate(w, "layout.html", data); err != nil {
+	if session, ok := middleware.GetSession(a.Request); ok {
+		data.LoggedIn = true
+		data.Username = session.Username
+	} else {
+		data.LoggedIn = false
+		data.Username = ""
+	}
+
+	a.ResponseWriter.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := tmpl.ExecuteTemplate(a.ResponseWriter, "layout.html", data); err != nil {
 		return fmt.Errorf("renderPage(%s): %w", page, err)
 	}
 	return nil
