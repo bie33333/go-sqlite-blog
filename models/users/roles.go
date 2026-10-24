@@ -29,6 +29,25 @@ func RoleName(roleID int64) string {
 	}
 }
 
+// RoleLabel 返回角色在界面上展示的中文名称。
+func RoleLabel(roleID int64) string {
+	switch roleID {
+	case RoleAdmin:
+		return "管理员"
+	case RoleEditor:
+		return "编辑"
+	case RoleAuthor:
+		return "作者"
+	default:
+		return "未知角色"
+	}
+}
+
+// IsAdminRole 判断角色是否为管理员。
+func IsAdminRole(roleID int64) bool {
+	return roleID == RoleAdmin
+}
+
 // GetRoleID 从数据库读取用户的当前角色。
 // 以数据库为准而不是 session，这样角色变更（提升/降级）立即生效。
 func GetRoleID(env *models.Env, userID int64) (int64, error) {

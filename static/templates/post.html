@@ -2,6 +2,16 @@
 <article class="card">
     <h1>{{.Article.Title}}</h1>
     <p class="meta">{{if .Article.Author}}作者：{{.Article.Author}} · {{end}}{{.Article.CreatedAt}}</p>
+    {{if .IsAdmin}}
+    <div class="actions">
+        <a class="btn small" href="/admin">管理后台</a>
+        <form method="POST" action="/admin/articles/{{.ArticleID}}/delete"
+              onsubmit="return confirm('删除文章会同时删除其评论，确定继续？');">
+            <input type="hidden" name="next" value="/">
+            <button class="btn small" type="submit">删除本文</button>
+        </form>
+    </div>
+    {{end}}
     <div class="article-body">{{.Article.Content}}</div>
 </article>
 
@@ -9,11 +19,27 @@
     <h2>评论（{{len .Comments}}）</h2>
     {{if .Error}}<p class="alert error">{{.Error}}</p>{{end}}
     {{if .Message}}<p class="alert success">{{.Message}}</p>{{end}}
+    {{if .IsAdmin}}<p class="excerpt">管理员视角：包含待审核评论。</p>{{end}}
     {{if .Comments}}
         {{range .Comments}}
         <div class="article-item">
             <p class="meta">{{if .AuthorName}}{{.AuthorName}}{{else}}匿名{{end}} · {{.CreatedAt}}{{if not .Approved}}<span class="badge">待审核</span>{{end}}</p>
             <p class="article-body" style="margin-top:0.35rem">{{.Content}}</p>
+            {{if $.IsAdmin}}
+            <div class="actions">
+                {{if not .Approved}}
+                <form method="POST" action="/admin/comments/{{.ID}}/approve">
+                    <input type="hidden" name="next" value="/post/{{$.ArticleID}}?pending=approved">
+                    <button class="btn small primary" type="submit">通过</button>
+                </form>
+                {{end}}
+                <form method="POST" action="/admin/comments/{{.ID}}/delete"
+                      onsubmit="return confirm('确定删除这条评论？');">
+                    <input type="hidden" name="next" value="/post/{{$.ArticleID}}">
+                    <button class="btn small" type="submit">删除</button>
+                </form>
+            </div>
+            {{end}}
         </div>
         {{end}}
     {{else}}

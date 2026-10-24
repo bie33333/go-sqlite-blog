@@ -52,7 +52,19 @@
         }
         .brand:hover { text-decoration: none; color: var(--accent); }
         nav { display: flex; align-items: center; gap: 1rem; font-size: 0.95rem; }
-        nav .user { color: var(--muted); font-size: 0.9rem; }
+        nav .user { color: var(--muted); font-size: 0.9rem; display: inline-flex; align-items: center; gap: 0.35rem; }
+        .role-badge {
+            display: inline-block;
+            font-size: 0.72rem;
+            line-height: 1.5;
+            padding: 0 0.45rem;
+            border-radius: 999px;
+            border: 1px solid transparent;
+        }
+        .role-admin { background: #eef2ff; color: #3730a3; border-color: #c7d2fe; }
+        .role-editor { background: #ecfdf5; color: #065f46; border-color: #a7f3d0; }
+        .role-author { background: #f3f4f6; color: #374151; border-color: #e5e7eb; }
+        .role-big { font-size: 0.85rem; padding: 0.1rem 0.6rem; }
         nav form.inline { margin: 0; }
         nav button.link {
             background: none;
@@ -188,7 +200,9 @@
                 <a href="/post/new">发文章</a>
                 {{if .IsAdmin}}<a href="/admin">管理</a>{{end}}
                 {{if .LoggedIn}}
-                    <span class="user">你好，{{.Username}}</span>
+                    <span class="user">
+                        {{.Username}}<span class="role-badge role-{{.RoleSlug}}">{{.RoleName}}</span>
+                    </span>
                     <form class="inline" method="POST" action="/logout">
                         <button class="link" type="submit">退出</button>
                     </form>

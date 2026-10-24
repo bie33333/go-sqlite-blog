@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/AndreHeber/go-sqlite-blog/middleware"
 	"github.com/AndreHeber/go-sqlite-blog/models"
@@ -20,18 +21,23 @@ FROM comments c
 LEFT JOIN articles a ON a.id = c.article_id
 ORDER BY c.approved ASC, c.created_at DESC, c.id DESC`
 
-// isAdminUser 以数据库中的 role_id 为准判断当前用户是否管理员。
-func isAdminUser(a *middleware.Adapter) bool {
+// currentRoleID 从数据库读取当前登录用户的角色；未登录或读取失败返回 0。
+func currentRoleID(a *middleware.Adapter) (int64, error) {
 	session, ok := currentSession(a.Request)
 	if !ok {
-		return false
+		return 0, nil
 	}
-	roleID, err := users.GetRoleID(models.EnvFromAdapter(a), session.UserID)
+	return users.GetRoleID(models.EnvFromAdapter(a), session.UserID)
+}
+
+// isAdminUser 以数据库中的 role_id 为准判断当前用户是否管理员。
+func isAdminUser(a *middleware.Adapter) bool {
+	roleID, err := currentRoleID(a)
 	if err != nil {
 		a.Logger.Error("handlers: isAdminUser", "error", err)
 		return false
 	}
-	return roleID == users.RoleAdmin
+	return users.IsAdminRole(roleID)
 }
 
 // requireAdmin 校验管理员身份：未登录 302 到 /login，非管理员返回 403 页面。
@@ -50,6 +56,17 @@ func requireAdmin(a *middleware.Adapter) (bool, error) {
 		Title: "403",
 		Error: "此页面仅管理员可访问",
 	})
+}
+
+// adminRedirectTarget 返回管理操作完成后的跳转地址。
+// 详情页也会放置管理按钮，通过表单里的 next 回到该页；仅接受站内相对路径，
+// 避免开放重定向。默认回管理后台。
+func adminRedirectTarget(r *http.Request) string {
+	next := strings.TrimSpace(r.FormValue("next"))
+	if strings.HasPrefix(next, "/") && !strings.HasPrefix(next, "//") {
+		return next
+	}
+	return "/admin"
 }
 
 // AdminDashboard 渲染管理后台：评论审核 + 文章管理
@@ -97,7 +114,7 @@ func ApproveComment(a *middleware.Adapter) error {
 		return notFound(a, "评论不存在")
 	}
 
-	http.Redirect(a.ResponseWriter, a.Request, "/admin", http.StatusSeeOther)
+	http.Redirect(a.ResponseWriter, a.Request, adminRedirectTarget(a.Request), http.StatusSeeOther)
 	return nil
 }
 
@@ -136,7 +153,7 @@ func DeleteComment(a *middleware.Adapter) error {
 		return fmt.Errorf("DeleteComment: %w", err)
 	}
 
-	http.Redirect(a.ResponseWriter, a.Request, "/admin", http.StatusSeeOther)
+	http.Redirect(a.ResponseWriter, a.Request, adminRedirectTarget(a.Request), http.StatusSeeOther)
 	return nil
 }
 
@@ -189,7 +206,7 @@ func DeleteArticle(a *middleware.Adapter) error {
 		return fmt.Errorf("DeleteArticle: %w", err)
 	}
 
-	http.Redirect(a.ResponseWriter, a.Request, "/admin", http.StatusSeeOther)
+	http.Redirect(a.ResponseWriter, a.Request, adminRedirectTarget(a.Request), http.StatusSeeOther)
 	return nil
 }
 

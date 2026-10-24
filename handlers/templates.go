@@ -7,6 +7,7 @@ import (
 
 	"github.com/AndreHeber/go-sqlite-blog/middleware"
 	"github.com/AndreHeber/go-sqlite-blog/models"
+	"github.com/AndreHeber/go-sqlite-blog/models/users"
 )
 
 // templatesDir 是模板目录，相对于运行时工作目录（项目根目录）。
@@ -19,6 +20,10 @@ type ViewData struct {
 	Username string
 	LoggedIn bool
 	IsAdmin  bool
+	// RoleID / RoleName / RoleSlug 用于在界面上展示当前用户身份
+	RoleID   int64
+	RoleName string
+	RoleSlug string
 	Error    string
 	Message  string
 
@@ -65,10 +70,22 @@ func renderPage(a *middleware.Adapter, page string, data ViewData) error {
 	if session, ok := middleware.GetSession(a.Request); ok {
 		data.LoggedIn = true
 		data.Username = session.Username
-		data.IsAdmin = isAdminUser(a)
+
+		// 角色以数据库为准，提升/降级后无需重新登录即可生效
+		roleID, err := currentRoleID(a)
+		if err != nil {
+			a.Logger.Error("renderPage: failed to load role", "error", err, "user", session.Username)
+		}
+		data.RoleID = roleID
+		data.RoleName = users.RoleLabel(roleID)
+		data.RoleSlug = users.RoleName(roleID)
+		data.IsAdmin = users.IsAdminRole(roleID)
 	} else {
 		data.LoggedIn = false
 		data.Username = ""
+		data.RoleID = 0
+		data.RoleName = ""
+		data.RoleSlug = ""
 		data.IsAdmin = false
 	}
 

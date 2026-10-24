@@ -103,7 +103,10 @@ func ShowArticle(a *middleware.Adapter) error {
 	}
 
 	message := ""
-	if a.Request.URL.Query().Get("pending") != "" {
+	switch a.Request.URL.Query().Get("pending") {
+	case "approved":
+		message = "评论已通过审核，现在所有访客都能看到"
+	case "1":
 		message = "评论已提交，等待管理员审核后展示"
 	}
 
