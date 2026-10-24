@@ -1,0 +1,18 @@
+{{define "content"}}
+<h1>最新文章</h1>
+{{if .Articles}}
+<section class="card">
+    {{range .Articles}}
+    <article class="article-item">
+        <h2><a href="/post/{{.ID}}">{{.Title}}</a></h2>
+        {{if .Excerpt}}<p class="excerpt">{{.Excerpt}}</p>{{end}}
+        <p class="meta">{{if .Author}}作者：{{.Author}} · {{end}}{{.CreatedAt}}</p>
+    </article>
+    {{end}}
+</section>
+{{else}}
+<section class="card empty">
+    <p>暂无文章，<a href="/post/new">写第一篇</a>吧。</p>
+</section>
+{{end}}
+{{end}}

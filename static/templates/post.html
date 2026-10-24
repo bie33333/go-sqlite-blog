@@ -1,0 +1,21 @@
+{{define "content"}}
+<article class="card">
+    <h1>{{.Article.Title}}</h1>
+    <p class="meta">{{if .Article.Author}}作者：{{.Article.Author}} · {{end}}{{.Article.CreatedAt}}</p>
+    <div class="article-body">{{.Article.Content}}</div>
+</article>
+
+<section class="card" id="comments">
+    <h2>评论（{{len .Comments}}）</h2>
+    {{if .Comments}}
+        {{range .Comments}}
+        <div class="article-item">
+            <p class="meta">{{if .AuthorName}}{{.AuthorName}}{{else}}匿名{{end}} · {{.CreatedAt}}{{if not .Approved}}<span class="badge">待审核</span>{{end}}</p>
+            <p class="article-body" style="margin-top:0.35rem">{{.Content}}</p>
+        </div>
+        {{end}}
+    {{else}}
+        <p class="excerpt">还没有评论，来说两句吧。</p>
+    {{end}}
+</section>
+{{end}}

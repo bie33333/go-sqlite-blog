@@ -7,6 +7,7 @@ type Article struct {
 	Title     string
 	Content   string
 	Excerpt   string
+	Author    string
 	CreatedAt string
 }
 

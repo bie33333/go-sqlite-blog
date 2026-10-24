@@ -92,5 +92,11 @@ func setupRouter(adapter *middleware.Adapter) *http.ServeMux {
 	mux.Handle("GET /login", adapter.HTTPToContextHandler(handlers.ShowLogin))
 	mux.Handle("POST /login", adapter.HTTPToContextHandler(handlers.TryLogin))
 
+	mux.Handle("GET /post/{id}", adapter.HTTPToContextHandler(handlers.ShowArticle))
+
+	// 注意：Go 1.22+ ServeMux 中 "GET /" 会兜底所有未匹配的 GET 路径，
+	// ListArticles 内部会对非 "/" 路径返回 404。
+	mux.Handle("GET /", adapter.HTTPToContextHandler(handlers.ListArticles))
+
 	return mux
 }
