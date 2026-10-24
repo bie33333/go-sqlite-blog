@@ -3,7 +3,6 @@ package handlers
 import (
 	"errors"
 	"fmt"
-	"html/template"
 	"time"
 
 	"github.com/AndreHeber/go-sqlite-blog/middleware"
@@ -13,16 +12,7 @@ import (
 
 // ShowRegister renders the register page
 func ShowRegister(a *middleware.Adapter) error {
-	w := a.ResponseWriter
-	tmpl, err := template.ParseFiles("static/templates/register.html")
-	if err != nil {
-		return fmt.Errorf("ShowRegister: %w", err)
-	}
-	err = tmpl.Execute(w, nil)
-	if err != nil {
-		return fmt.Errorf("ShowRegister: %w", err)
-	}
-	return nil
+	return renderPage(a.ResponseWriter, "register.html", ViewData{Title: "注册"})
 }
 
 // TryRegister handles the registration form submission
@@ -37,12 +27,22 @@ func TryRegister(a *middleware.Adapter) error {
 	password := r.FormValue("password")
 	email := r.FormValue("email")
 
-	err = register(models.EnvFromAdapter(a), username, password, email)
-	if err != nil {
-		return fmt.Errorf("TryRegister: %w", err)
+	if err := register(models.EnvFromAdapter(a), username, password, email); err != nil {
+		message := "注册失败，请稍后重试"
+		if a.ErrorInResponse {
+			message = err.Error()
+		}
+		// 表单错误直接回到注册页展示，避免返回 500
+		return renderPage(a.ResponseWriter, "register.html", ViewData{
+			Title: "注册",
+			Error: message,
+		})
 	}
 
-	return nil
+	return renderPage(a.ResponseWriter, "register.html", ViewData{
+		Title:   "注册",
+		Message: "注册成功，请前往登录",
+	})
 }
 
 // register saves the user to the database, password is hashed before saving using bcrypt

@@ -3,44 +3,41 @@ package handlers
 import (
 	"errors"
 	"fmt"
-	"html/template"
+	"net/http"
 
 	"github.com/AndreHeber/go-sqlite-blog/middleware"
 	"github.com/AndreHeber/go-sqlite-blog/models"
 	"github.com/AndreHeber/go-sqlite-blog/models/users"
 )
 
+// ShowLogin renders the login page
 func ShowLogin(a *middleware.Adapter) error {
-	w := a.ResponseWriter
-	tmpl, err := template.ParseFiles("static/templates/login.html")
-	if err != nil {
-		return fmt.Errorf("ShowLogin: %w", err)
-	}
-	err = tmpl.Execute(w, nil)
-	if err != nil {
-		return fmt.Errorf("ShowLogin: %w", err)
-	}
-	return nil
+	return renderPage(a.ResponseWriter, "login.html", ViewData{Title: "登录"})
 }
 
+// TryLogin handles the login form submission
 func TryLogin(a *middleware.Adapter) error {
 	r := a.Request
 
-	err := r.ParseForm()
-	if err != nil {
+	if err := r.ParseForm(); err != nil {
 		return fmt.Errorf("TryLogin: %w", err)
 	}
 	username := r.FormValue("username")
 	password := r.FormValue("password")
 
-	err = login(models.EnvFromAdapter(a), username, password)
-	if err != nil {
+	if err := login(models.EnvFromAdapter(a), username, password); err != nil {
+		message := "用户名或密码错误"
 		if a.ErrorInResponse {
-			return fmt.Errorf("TryLogin: %w", err)
+			message = err.Error()
 		}
-		return fmt.Errorf("TryLogin: username or password is invalid")
+		// 表单错误直接回到登录页展示，避免返回 500
+		return renderPage(a.ResponseWriter, "login.html", ViewData{
+			Title: "登录",
+			Error: message,
+		})
 	}
 
+	http.Redirect(a.ResponseWriter, r, "/", http.StatusSeeOther)
 	return nil
 }
 

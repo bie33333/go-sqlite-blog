@@ -93,9 +93,10 @@ CREATE TABLE IF NOT EXISTS roles (
     name TEXT NOT NULL UNIQUE
 );
 
--- insert role
--- INSERT INTO roles (name) VALUES ('admin');
--- INSERT INTO roles (name) VALUES ('user');
+-- insert role (seed data, idempotent so re-running tables.sql is safe)
+INSERT OR IGNORE INTO roles (id, name) VALUES (1, 'admin');
+INSERT OR IGNORE INTO roles (id, name) VALUES (2, 'editor');
+INSERT OR IGNORE INTO roles (id, name) VALUES (3, 'author');
 
 -- permissions
 CREATE TABLE IF NOT EXISTS permissions (
