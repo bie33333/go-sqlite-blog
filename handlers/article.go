@@ -41,6 +41,14 @@ FROM comments
 WHERE article_id = ?
 ORDER BY created_at ASC, id ASC`
 
+// 未审核评论只对管理员可见，普通访客只看已通过的评论
+const listApprovedCommentsQuery = `
+SELECT id, article_id, user_id, COALESCE(author_name, ''), content,
+       strftime('%Y-%m-%d %H:%M', created_at), approved
+FROM comments
+WHERE article_id = ? AND approved = 1
+ORDER BY created_at ASC, id ASC`
+
 // ListArticles 渲染首页文章列表
 func ListArticles(a *middleware.Adapter) error {
 	if a.Request.URL.Path != "/" {
@@ -89,12 +97,17 @@ func ShowArticle(a *middleware.Adapter) error {
 		return fmt.Errorf("ShowArticle: %w", err)
 	}
 
-	comments, err := listComments(env, id)
+	comments, err := listComments(env, id, isAdminUser(a))
 	if err != nil {
 		return fmt.Errorf("ShowArticle: %w", err)
 	}
 
-	return renderPostPage(a, article, comments, "")
+	message := ""
+	if a.Request.URL.Query().Get("pending") != "" {
+		message = "评论已提交，等待管理员审核后展示"
+	}
+
+	return renderPostPage(a, article, comments, message)
 }
 
 // getArticle 查询单篇文章
@@ -105,9 +118,14 @@ func getArticle(env *models.Env, id int64) (models.Article, error) {
 	return article, err
 }
 
-// listComments 查询文章下的评论
-func listComments(env *models.Env, articleID int64) ([]models.Comment, error) {
-	rows, err := env.DB.QueryContext(env.Ctx, listCommentsQuery, articleID)
+// listComments 查询文章下的评论；includePending 为 true 时包含待审核评论（仅管理员）。
+func listComments(env *models.Env, articleID int64, includePending bool) ([]models.Comment, error) {
+	query := listCommentsQuery
+	if !includePending {
+		query = listApprovedCommentsQuery
+	}
+
+	rows, err := env.DB.QueryContext(env.Ctx, query, articleID)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +186,7 @@ func CreateComment(a *middleware.Adapter) error {
 
 	content := strings.TrimSpace(r.FormValue("content"))
 	if content == "" {
-		comments, err := listComments(env, id)
+		comments, err := listComments(env, id, isAdminUser(a))
 		if err != nil {
 			return fmt.Errorf("CreateComment: %w", err)
 		}
@@ -183,7 +201,7 @@ func CreateComment(a *middleware.Adapter) error {
 		return fmt.Errorf("CreateComment: %w", err)
 	}
 
-	http.Redirect(a.ResponseWriter, r, fmt.Sprintf("/post/%d#comments", id), http.StatusSeeOther)
+	http.Redirect(a.ResponseWriter, r, fmt.Sprintf("/post/%d?pending=1#comments", id), http.StatusSeeOther)
 	return nil
 }
 

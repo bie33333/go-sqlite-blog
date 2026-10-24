@@ -13,6 +13,8 @@ import (
 	dbService "github.com/AndreHeber/go-sqlite-blog/db"
 	"github.com/AndreHeber/go-sqlite-blog/handlers"
 	"github.com/AndreHeber/go-sqlite-blog/middleware"
+	"github.com/AndreHeber/go-sqlite-blog/models"
+	"github.com/AndreHeber/go-sqlite-blog/models/users"
 )
 
 func main() {
@@ -40,6 +42,16 @@ func main() {
 	db, err := dbService.Init(logger, cfg.Database.Driver, cfg.Database.Source, "./tables.sql")
 	if err != nil {
 		os.Exit(1)
+	}
+
+	// 管理员提升机制：启动时把指定用户设为 admin，便于没有后台入口时完成首次授权
+	if cfg.PromoteAdmin != "" {
+		env := &models.Env{DB: db, Ctx: context.Background(), Logger: logger, LogDBQueries: cfg.Database.LogQueries}
+		if err := users.PromoteToAdmin(env, cfg.PromoteAdmin); err != nil {
+			slog.Error("main: Error promoting user to admin", "username", cfg.PromoteAdmin, "error", err)
+			os.Exit(1)
+		}
+		slog.Info("main: User promoted to admin", "username", cfg.PromoteAdmin)
 	}
 
 	adapter := middleware.Init(logger, db, cfg.ErrorsInResponse, cfg.Database.LogQueries, cfg.IPRateLimit, cfg.BurstRateLimit)
@@ -96,6 +108,12 @@ func setupRouter(adapter *middleware.Adapter) *http.ServeMux {
 	mux.Handle("POST /post", adapter.HTTPToContextHandler(middleware.RequireLogin(handlers.CreateArticle)))
 	mux.Handle("GET /post/{id}", adapter.HTTPToContextHandler(handlers.ShowArticle))
 	mux.Handle("POST /post/{id}/comment", adapter.HTTPToContextHandler(middleware.RequireLogin(handlers.CreateComment)))
+
+	// 管理后台（handler 内部校验 admin 角色，非管理员返回 403 页面）
+	mux.Handle("GET /admin", adapter.HTTPToContextHandler(handlers.AdminDashboard))
+	mux.Handle("POST /admin/comments/{id}/approve", adapter.HTTPToContextHandler(handlers.ApproveComment))
+	mux.Handle("POST /admin/comments/{id}/delete", adapter.HTTPToContextHandler(handlers.DeleteComment))
+	mux.Handle("POST /admin/articles/{id}/delete", adapter.HTTPToContextHandler(handlers.DeleteArticle))
 
 	// 注意：Go 1.22+ ServeMux 中 "GET /" 会兜底所有未匹配的 GET 路径，
 	// ListArticles 内部会对非 "/" 路径返回 404。

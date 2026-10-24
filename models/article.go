@@ -20,4 +20,7 @@ type Comment struct {
 	Content    string
 	CreatedAt  string
 	Approved   bool
+
+	// 管理后台列表展示用（JOIN articles 得到）
+	ArticleTitle string
 }

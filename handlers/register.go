@@ -62,9 +62,10 @@ func register(env *models.Env, username, password, email string) error {
 		Salt:           encodedSalt,
 		Email:          email,
 		Verified:       false,
-		RoleID:         1,
-		CreatedAt:      time.Now(),
-		LastLogin:      time.Now(),
+		// 注册用户默认是 author，管理员需通过 --promote-admin 显式提升
+		RoleID:    uint64(users.RoleAuthor),
+		CreatedAt: time.Now(),
+		LastLogin: time.Now(),
 	}
 
 	err := users.CreateUser(env, user)

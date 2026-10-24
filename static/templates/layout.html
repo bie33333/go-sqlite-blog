@@ -132,6 +132,8 @@
         .btn.primary:hover { background: var(--accent-dark); }
         .btn.small { padding: 0.3rem 0.7rem; font-size: 0.85rem; font-weight: 500; }
         .btn-row { margin-top: 1.25rem; display: flex; gap: 0.6rem; align-items: center; }
+        .actions { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.6rem; }
+        .actions form { margin: 0; }
 
         .alert {
             padding: 0.7rem 0.9rem;
@@ -184,6 +186,7 @@
             <nav>
                 <a href="/">首页</a>
                 <a href="/post/new">发文章</a>
+                {{if .IsAdmin}}<a href="/admin">管理</a>{{end}}
                 {{if .LoggedIn}}
                     <span class="user">你好，{{.Username}}</span>
                     <form class="inline" method="POST" action="/logout">

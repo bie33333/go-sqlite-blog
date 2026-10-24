@@ -18,14 +18,16 @@ type ViewData struct {
 	Title    string
 	Username string
 	LoggedIn bool
+	IsAdmin  bool
 	Error    string
 	Message  string
 
 	// 页面数据
-	Articles  []models.Article
-	Article   models.Article
-	Comments  []models.Comment
-	ArticleID int64
+	Articles      []models.Article
+	Article       models.Article
+	Comments      []models.Comment
+	AdminComments []models.Comment
+	ArticleID     int64
 
 	// 表单回显
 	FormTitle   string
@@ -63,9 +65,11 @@ func renderPage(a *middleware.Adapter, page string, data ViewData) error {
 	if session, ok := middleware.GetSession(a.Request); ok {
 		data.LoggedIn = true
 		data.Username = session.Username
+		data.IsAdmin = isAdminUser(a)
 	} else {
 		data.LoggedIn = false
 		data.Username = ""
+		data.IsAdmin = false
 	}
 
 	a.ResponseWriter.Header().Set("Content-Type", "text/html; charset=utf-8")

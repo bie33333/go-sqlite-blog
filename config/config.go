@@ -27,6 +27,8 @@ type Config struct {
 	ErrorsInResponse bool           `yaml:"errors_in_response"`
 	IPRateLimit      rate.Limit     `yaml:"ip_rate_limit"`
 	BurstRateLimit   int            `yaml:"burst_rate_limit"`
+	// PromoteAdmin 非空时，启动阶段把该用户名的用户提升为 admin
+	PromoteAdmin string `yaml:"promote_admin"`
 }
 
 // 1. Load defaults
@@ -183,6 +185,10 @@ func loadConfigEnv(config *Config) (*Config, error) {
 		}
 	}
 
+	if envVal := os.Getenv("PROMOTE_ADMIN"); envVal != "" {
+		config.PromoteAdmin = envVal
+	}
+
 	return config, nil
 }
 
@@ -196,6 +202,7 @@ func loadConfigFlags(config *Config) *Config {
 	flag.BoolVar(&config.Database.Reset, "database-reset", config.Database.Reset, "Reset database")
 	flag.BoolVar(&config.Database.LogQueries, "database-log-queries", config.Database.LogQueries, "Log database queries")
 	flag.BoolVar(&config.ErrorsInResponse, "errors-in-response", config.ErrorsInResponse, "Include errors in response")
+	flag.StringVar(&config.PromoteAdmin, "promote-admin", config.PromoteAdmin, "Promote the given username to the admin role on startup")
 
 	flag.Parse()
 

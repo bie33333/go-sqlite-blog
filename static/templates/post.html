@@ -8,6 +8,7 @@
 <section class="card" id="comments">
     <h2>评论（{{len .Comments}}）</h2>
     {{if .Error}}<p class="alert error">{{.Error}}</p>{{end}}
+    {{if .Message}}<p class="alert success">{{.Message}}</p>{{end}}
     {{if .Comments}}
         {{range .Comments}}
         <div class="article-item">

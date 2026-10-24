@@ -65,3 +65,19 @@ content=Nice+post
 ### logout
 
 POST http://127.0.0.1:8080/logout
+
+### admin dashboard (admin role required)
+
+GET http://127.0.0.1:8080/admin
+
+### approve comment (admin only)
+
+POST http://127.0.0.1:8080/admin/comments/1/approve
+
+### delete comment (admin only)
+
+POST http://127.0.0.1:8080/admin/comments/1/delete
+
+### delete article (admin only)
+
+POST http://127.0.0.1:8080/admin/articles/1/delete
