@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -44,9 +45,12 @@ var safeImageURLPattern = regexp.MustCompile(`(?i)^(https?://|/|\./)`)
 var stylePropPattern = regexp.MustCompile(`([a-zA-Z-]+)\s*:\s*([^;]+)`)
 
 // allowedStyleProps 是允许透传的样式属性白名单。
-// 故意不包含 zoom / position / background 等：
-//   - zoom 不是标准属性，复制网页时经常带出 "zoom: 5%" 这种把图缩到几乎看不见的值；
-//   - background 可以用 url() 引入外部资源，属于攻击面。
+// 故意不包含 position / background 等：
+//   - background 可以用 url() 引入外部资源，属于攻击面；
+//   - position / top / left 可以让元素跑到页面任意位置，属于点击劫持帮凶。
+//
+// 注意：zoom 不在这里。它不是标准 CSS 属性（Firefox 直到 126 才支持），
+// 因此不直接透传，而是由 sanitizeStyle 转换成等价的 width 百分比。
 var allowedStyleProps = map[string]bool{
 	"width":         true,
 	"height":        true,
@@ -226,24 +230,98 @@ func safeDimension(raw string) string {
 }
 
 // sanitizeStyle 只保留白名单里的样式属性，且值必须匹配安全字符集。
+//
+// 特殊处理 zoom：Typora 以及从网页/AI 复制的内容常用
+//
+//	<img src="..." style="zoom:10%;">
+//
+// 表示「按原尺寸的 10% 显示」。CSS 的 zoom 是非标准属性，兼容性差
+// （Firefox 126 之前不支持），而且语义是缩放整个元素盒模型。
+// 这里把它翻译成等价的 width 百分比，各浏览器表现一致：
+//
+//	zoom:10%  -> width:10%
+//	zoom:0.1  -> width:10%
+//	zoom:2    -> width:200%
 func sanitizeStyle(raw string) string {
 	if strings.TrimSpace(raw) == "" {
 		return ""
 	}
 
-	parts := make([]string, 0, 4)
+	props := make(map[string]string, 4)
+	order := make([]string, 0, 4)
+
+	setProp := func(prop, value string) {
+		if _, exists := props[prop]; exists {
+			return // 同名属性以先出现的为准
+		}
+		props[prop] = value
+		order = append(order, prop)
+	}
+
+	// zoom 先记下来，等扫描完再决定是否采用：显式 width 的优先级更高
+	zoomWidth := ""
 	for _, match := range stylePropPattern.FindAllStringSubmatch(raw, -1) {
 		prop := strings.ToLower(strings.TrimSpace(match[1]))
+		value := strings.TrimSpace(match[2])
+
+		if prop == "zoom" {
+			if zoomWidth == "" {
+				if percent, ok := zoomToWidthPercent(value); ok {
+					zoomWidth = percent
+				}
+			}
+			continue
+		}
+
 		if !allowedStyleProps[prop] {
 			continue
 		}
-		value := strings.TrimSpace(match[2])
 		if !safeStyleValuePattern.MatchString(value) {
 			continue
 		}
-		parts = append(parts, prop+":"+value)
+		setProp(prop, value)
+	}
+
+	parts := make([]string, 0, len(order)+1)
+	if zoomWidth != "" {
+		if _, hasWidth := props["width"]; !hasWidth {
+			parts = append(parts, "width:"+zoomWidth)
+		}
+	}
+	for _, prop := range order {
+		parts = append(parts, prop+":"+props[prop])
 	}
 	return strings.Join(parts, ";")
+}
+
+// zoomToWidthPercent 把 zoom 的值换算成 width 百分比字符串。
+// 支持 `10%`（带百分号）与 `0.1`/`2`（倍率）两种写法；
+// 非法值、非正数或超过 500% 的值一律丢弃，避免生成荒唐的尺寸。
+func zoomToWidthPercent(value string) (string, bool) {
+	raw := strings.TrimSpace(strings.ToLower(value))
+	if raw == "" {
+		return "", false
+	}
+
+	isPercent := strings.HasSuffix(raw, "%")
+	if isPercent {
+		raw = strings.TrimSpace(strings.TrimSuffix(raw, "%"))
+	}
+
+	number, err := strconv.ParseFloat(raw, 64)
+	if err != nil || math.IsNaN(number) || math.IsInf(number, 0) {
+		return "", false
+	}
+	// 倍率写法换算成百分比：0.5 -> 50%
+	if !isPercent {
+		number *= 100
+	}
+
+	if number <= 0 || number > 500 {
+		return "", false
+	}
+
+	return strconv.FormatFloat(number, 'f', -1, 64) + "%", true
 }
 
 // escapeAttr 转义属性值，避免引号/尖括号破坏标签结构。

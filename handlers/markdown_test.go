@@ -25,10 +25,16 @@ func TestRenderMarkdownEmbeddedImages(t *testing.T) {
 			},
 		},
 		{
-			name:        "zoom 与 background 被剔除",
+			name:        "zoom 不再被剔除，而是转成 width",
+			source:      `<img src="/uploads/a.png" style="zoom: 30%;">`,
+			wantContain: []string{`style="width:30%"`},
+			wantNotHave: []string{"zoom"},
+		},
+		{
+			name:        "background 被剔除",
 			source:      `<img src="/uploads/a.png" style="zoom: 5%; background: url(http://evil.com/x.png); width: 50%">`,
 			wantContain: []string{`style="width:50%"`},
-			wantNotHave: []string{"zoom", "background", "evil.com"},
+			wantNotHave: []string{"background", "evil.com"},
 		},
 		{
 			name:        "自闭合写法",
@@ -159,17 +165,58 @@ func TestSanitizeStyle(t *testing.T) {
 	}{
 		{"width: 40%", "width:40%"},
 		{"WIDTH: 300px; HEIGHT: auto", "width:300px;height:auto"},
-		{"zoom: 5%", ""},
 		{"width: 40%; color: red", "width:40%"},
 		{"background: url(x)", ""},
 		{"width: expression(alert(1))", ""},
 		{"max-width: 100%; border-radius: 8px", "max-width:100%;border-radius:8px"},
+
+		// zoom 转换：Typora / 网页复制的写法
+		{"zoom:10%", "width:10%"},
+		{"zoom: 10%", "width:10%"},
+		{"zoom:50%;", "width:50%"},
+		{"zoom: 0.1", "width:10%"},
+		{"zoom: 0.5", "width:50%"},
+		{"zoom: 2", "width:200%"},
+		{"zoom: 100%", "width:100%"},
+		{"ZOOM: 40%", "width:40%"},
+
+		// 非法 zoom 一律丢弃
+		{"zoom: 0", ""},
+		{"zoom: 0%", ""},
+		{"zoom: -10%", ""},
+		{"zoom: abc", ""},
+		{"zoom: 600%", ""},
+		{"zoom:", ""},
+
+		// zoom 与 width 同时出现时，显式 width 优先
+		{"zoom:10%; width:200px", "width:200px"},
+		{"width:200px; zoom:10%", "width:200px"},
+
+		// zoom 与其它白名单属性共存
+		{"zoom:30%; border-radius:4px", "width:30%;border-radius:4px"},
+		{"zoom:30%; color:red", "width:30%"},
 	}
 
 	for _, tt := range tests {
 		if got := sanitizeStyle(tt.in); got != tt.want {
 			t.Errorf("sanitizeStyle(%q) = %q, want %q", tt.in, got, tt.want)
 		}
+	}
+}
+
+func TestZoomRendersAsWidth(t *testing.T) {
+	got, err := renderMarkdown(`<img src="https://images.example.com/a.png" alt="封面" style="zoom:10%;">`)
+	if err != nil {
+		t.Fatalf("renderMarkdown() error = %v", err)
+	}
+	out := string(got)
+
+	if !strings.Contains(out, `style="width:10%"`) {
+		t.Errorf("期望输出 width:10%%，实际: %s", out)
+	}
+	// 不应把非标准的 zoom 透传给浏览器
+	if strings.Contains(out, "zoom") {
+		t.Errorf("输出不应包含 zoom: %s", out)
 	}
 }
 

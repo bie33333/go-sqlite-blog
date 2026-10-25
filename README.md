@@ -60,10 +60,50 @@ Go-SQLite-Blog is a lightweight blogging platform written in Go (Golang). It use
 | `title` | 保留 |
 | `width` / `height` | 只接受纯数字 |
 | `style` | 白名单：`width` `height` `max-width` `max-height` `object-fit` `border-radius` |
-| `style` 中的 `zoom` | **丢弃**。它不是标准 CSS，复制网页时常带出 `zoom: 5%` 这种把图缩到几乎看不见的值；要控制大小请用 `width` |
+| **`style` 中的 `zoom`** | **转换成等价的 `width` 百分比**（见下） |
 | `style` 中的 `background` / `position` 等 | 丢弃（`background: url()` 可引入外部资源） |
 | `onerror` / `onclick` 等事件属性 | 丢弃 |
 | `<script>` / `<iframe>` 等其它标签 | 丢弃（保持原有安全模型） |
+
+### 控制图片大小
+
+三种写法都支持，最终都输出成标准的 `style="width:..."`：
+
+```html
+<!-- 1) HTML + zoom：Typora 和从网页/AI 复制的内容长这样 -->
+<img src="https://example.com/a.png" alt="封面" style="zoom:10%;">
+```
+```markdown
+<!-- 2) Markdown + 尺寸属性（推荐，写起来最省事） -->
+![封面](https://example.com/a.png){width=40%}
+![封面](https://example.com/a.png){zoom=40%}
+![封面](https://example.com/a.png){width=400, height=200}
+![封面](https://example.com/a.png){w=50% h=30%}
+```
+```markdown
+<!-- 3) 外链图片直接带 HTML 尺寸属性 -->
+<img src="https://example.com/a.png" width="400" height="200">
+```
+
+换算规则：
+
+| 写法 | 输出 |
+| --- | --- |
+| `zoom:10%` / `{zoom=10%}` | `width:10%` |
+| `{zoom=0.5}` | `width:50%` |
+| `{zoom=2}` | `width:200%` |
+| `{width=400}` | `width:400px`（纯数字按 px） |
+| `{width=40%, height=200}` | `width:40%;height:200px` |
+| `zoom` 与显式 `width` 同时出现 | 以显式 `width` 为准 |
+| `zoom` ≤ 0 或 > 500% | 丢弃（防止写出荒唐尺寸） |
+
+**为什么要转换而不是直接用 `zoom`**：CSS 的 `zoom` 是非标准属性
+（Firefox 直到 126 才支持），而且它缩放的是整个元素盒模型，行为不稳定。
+改成 `width` 百分比是标准 CSS，各浏览器一致；配合 `.markdown img { max-width: 100%; height: auto; }`
+还能保证只写 `width` 时图片等比缩放、不溢出容器。
+
+> 提示：`{...}` 必须**紧贴**在图片语法后面，中间不能有空格。
+> 花括号里的键不认识（如 `{color=red}`）时，整段会当作普通正文保留。
 
 > 提示：`[image](url)` 只在链接文字恰为 `image` / `图片` / `图像` 时才转成图片，
 > 普通链接（如 `[点这里](url)`）不受影响。
