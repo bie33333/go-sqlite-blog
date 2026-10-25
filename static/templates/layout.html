@@ -224,6 +224,18 @@
         }
         .markdown th { background: #f9fafb; font-weight: 600; }
         .markdown img { max-width: 100%; height: auto; border-radius: 8px; }
+        /* 图片加载失败（例如正文里写的是本地相对路径 / 文件没上传）时给出明确提示 */
+        .markdown img.img-broken {
+            display: inline-block;
+            min-width: 160px;
+            min-height: 64px;
+            padding: 1rem;
+            border: 1px dashed #fca5a5;
+            background: #fef2f2;
+            color: #b91c1c;
+            font-size: 0.85rem;
+            border-radius: 8px;
+        }
         .markdown hr { border: none; border-top: 1px solid var(--border); margin: 1.6em 0; }
         .markdown a { text-decoration: underline; }
         .markdown input[type="checkbox"] { margin-right: 0.4em; }
@@ -278,5 +290,25 @@
     <footer class="site-footer">
         <p>Powered by Go · net/http · SQLite</p>
     </footer>
+    <script>
+    // 图片加载失败时加一个标记类，配合 CSS 显示出「图片未找到」的可见提示，
+    // 而不是只留一个看不出原因的破图图标。
+    (function () {
+        function mark(img) {
+            img.classList.add('img-broken');
+            img.title = '图片加载失败：' + (img.getAttribute('src') || '') +
+                '\n如果这是本地相对路径（如 ./xxx.assets/a.png），需要在编辑器里重新上传这张图片。';
+        }
+        var images = document.querySelectorAll('.markdown img');
+        for (var i = 0; i < images.length; i++) {
+            var img = images[i];
+            if (img.complete && img.naturalWidth === 0) {
+                mark(img);
+            } else {
+                img.addEventListener('error', function (e) { mark(e.currentTarget); });
+            }
+        }
+    })();
+    </script>
 </body>
 </html>

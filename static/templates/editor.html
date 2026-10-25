@@ -13,7 +13,7 @@
             <div class="actions" style="margin-top:0.6rem">
                 <input type="file" id="image-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none">
                 <button class="btn small" type="button" id="image-button">插入图片</button>
-                <span class="excerpt" id="image-status">支持 PNG / JPEG / GIF / WebP，最大 5 MB</span>
+                <span class="excerpt" id="image-status">支持 PNG / JPEG / GIF / WebP，最大 5 MB；也可以直接粘贴或拖入图片</span>
             </div>
             <p class="excerpt" style="margin:0.4rem 0 0">
                 支持 Markdown：# 标题、**粗体**、*斜体*、`代码`、- 列表、&gt; 引用、表格、链接、图片。
@@ -53,9 +53,13 @@
         textarea.setSelectionRange(pos, pos);
     }
 
-    input.addEventListener('change', function () {
-        var file = input.files && input.files[0];
+    // uploadFile 上传单张图片并把 Markdown 语法插到光标处
+    function uploadFile(file) {
         if (!file) return;
+        if (file.type && file.type.indexOf('image/') !== 0) {
+            status.textContent = '只能插入图片文件';
+            return;
+        }
 
         status.textContent = '上传中…';
         var form = new FormData();
@@ -82,6 +86,41 @@
         }).then(function () {
             input.value = '';
         });
+    }
+
+    input.addEventListener('change', function () {
+        uploadFile(input.files && input.files[0]);
+    });
+
+    // 直接粘贴截图/图片：剪贴板里的图片会变成 blob，自动上传
+    textarea.addEventListener('paste', function (e) {
+        var items = e.clipboardData && e.clipboardData.items;
+        if (!items) return;
+        for (var i = 0; i < items.length; i++) {
+            if (items[i].kind === 'file' && items[i].type.indexOf('image/') === 0) {
+                var file = items[i].getAsFile();
+                if (file) {
+                    e.preventDefault();
+                    uploadFile(file);
+                    return;
+                }
+            }
+        }
+    });
+
+    // 拖入图片文件
+    textarea.addEventListener('dragover', function (e) {
+        if (e.dataTransfer && e.dataTransfer.types.indexOf('Files') >= 0) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+        }
+    });
+    textarea.addEventListener('drop', function (e) {
+        var files = e.dataTransfer && e.dataTransfer.files;
+        if (!files || !files.length) return;
+        if (files[0].type.indexOf('image/') !== 0) return;
+        e.preventDefault();
+        uploadFile(files[0]);
     });
 })();
 </script>
