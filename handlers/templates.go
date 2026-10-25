@@ -30,6 +30,7 @@ type ViewData struct {
 	// 页面数据
 	Articles      []models.Article
 	Article       models.Article
+	ArticleHTML   template.HTML
 	Comments      []models.Comment
 	AdminComments []models.Comment
 	ArticleID     int64

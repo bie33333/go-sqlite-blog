@@ -110,7 +110,7 @@ func ShowArticle(a *middleware.Adapter) error {
 		message = "评论已提交，等待管理员审核后展示"
 	}
 
-	return renderPostPage(a, article, comments, message)
+	return renderPostPage(a, article, comments, message, "")
 }
 
 // getArticle 查询单篇文章
@@ -152,14 +152,22 @@ func listComments(env *models.Env, articleID int64, includePending bool) ([]mode
 	return comments, rows.Err()
 }
 
-// renderPostPage 渲染详情页（含评论列表与错误提示）
-func renderPostPage(a *middleware.Adapter, article models.Article, comments []models.Comment, message string) error {
+// renderPostPage 渲染详情页（含 Markdown 正文、评论列表与提示信息）。
+// notice 为绿色提示，errMsg 为红色错误提示，两者互斥使用。
+func renderPostPage(a *middleware.Adapter, article models.Article, comments []models.Comment, notice, errMsg string) error {
+	bodyHTML, err := renderMarkdown(article.Content)
+	if err != nil {
+		return fmt.Errorf("renderPostPage: %w", err)
+	}
+
 	return renderPage(a, "post.html", ViewData{
-		Title:     article.Title,
-		Article:   article,
-		ArticleID: article.ID,
-		Comments:  comments,
-		Error:     message,
+		Title:       article.Title,
+		Article:     article,
+		ArticleHTML: bodyHTML,
+		ArticleID:   article.ID,
+		Comments:    comments,
+		Message:     notice,
+		Error:       errMsg,
 	})
 }
 
@@ -193,7 +201,7 @@ func CreateComment(a *middleware.Adapter) error {
 		if err != nil {
 			return fmt.Errorf("CreateComment: %w", err)
 		}
-		return renderPostPage(a, article, comments, "评论内容不能为空")
+		return renderPostPage(a, article, comments, "", "评论内容不能为空")
 	}
 
 	// comments.approved 默认 0（待审核），这里显式写入待审核状态
@@ -215,16 +223,6 @@ func notFound(a *middleware.Adapter, message string) error {
 		Title: "404",
 		Error: message,
 	})
-}
-
-// excerpt 生成列表页摘要
-func excerpt(content string, limit int) string {
-	text := strings.Join(strings.Fields(content), " ")
-	if utf8.RuneCountInString(text) <= limit {
-		return text
-	}
-	runes := []rune(text)
-	return string(runes[:limit]) + "…"
 }
 
 // ShowEditor 渲染发文表单（需登录）

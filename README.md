@@ -18,6 +18,16 @@ Go-SQLite-Blog is a lightweight blogging platform written in Go (Golang). It use
 - 普通作者只能看到已通过审核的评论，也没有任何管理按钮。
 - 角色徽章的颜色：管理员=靛蓝、编辑=绿色、作者=灰色。
 
+### Markdown
+
+文章正文使用 Markdown 编写，服务端用 [goldmark](https://github.com/yuin/goldmark) 渲染（GFM 扩展）：
+
+- 支持：标题、粗体/斜体/删除线、行内代码与代码块（带语言高亮 class）、有序/无序列表、引用、表格、链接、图片、任务列表、分隔线。
+- 单个换行会渲染为 `<br>`（`WithHardWraps`），符合博客书写习惯。
+- **原始 HTML 标签会被丢弃**（goldmark 默认不开启 `WithUnsafe`），渲染结果可以安全地作为 HTML 输出，无需额外的 XSS 过滤。
+- 首页列表的摘要由 Markdown 渲染后剥离标签得到，因此不会出现 `#`、`**` 之类的标记。
+- 评论内容仍是**纯文本**展示（保留换行），不渲染 Markdown。
+
 ### 已实现路由
 
 | 方法 | 路径 | 说明 | 权限 |
@@ -92,7 +102,6 @@ go build -o go-sqlite-blog
 ### 已知限制
 
 - `articles` 表没有作者字段：作者信息保存在 `article_revisions` 的第一条记录（创建时写入的初版，`edited_by`）中，列表/详情页据此显示作者。
-- 文章正文当前按纯文本展示（`white-space: pre-wrap`），未渲染 Markdown。
 - 评论一律先进入「待审核」，未通过审核前只有管理员能在详情页看到；作者本人提交后会看到「等待审核」的提示。
 - `users.role_id` 的建表默认值仍是 1（admin）。应用层注册已固定写 3（author），但如果你绕过应用直接 `INSERT` 用户，记得显式指定 `role_id`。
 - 管理后台表单没有 CSRF token，依赖 session cookie 的 `SameSite=Lax` 阻止跨站 POST。若要对外部署，建议补 CSRF token。
@@ -203,6 +212,7 @@ go-sqlite-blog/
 ├── db/                      # 数据库连接与建表
 ├── handlers/                # HTTP handlers
 │   ├── article.go           # 文章列表 / 详情 / 发文 / 评论
+│   ├── markdown.go          # Markdown 渲染（goldmark）与摘要提取
 │   ├── admin.go             # 管理后台：审核评论、删除评论/文章
 │   ├── login.go             # 登录 / 登出
 │   ├── register.go          # 注册

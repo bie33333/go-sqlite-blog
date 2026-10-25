@@ -8,8 +8,12 @@
             <input type="text" id="title" name="title" value="{{.FormTitle}}" maxlength="200" required autofocus>
         </div>
         <div class="form-group">
-            <label for="content">正文（Markdown 原文，当前按纯文本展示）</label>
+            <label for="content">正文（支持 Markdown）</label>
             <textarea id="content" name="content" required>{{.FormContent}}</textarea>
+            <p class="excerpt" style="margin:0.4rem 0 0">
+                支持 Markdown：# 标题、**粗体**、*斜体*、`代码`、- 列表、&gt; 引用、表格、链接、图片。
+                出于安全考虑，正文中的原始 HTML 标签会被忽略。
+            </p>
         </div>
         <div class="btn-row">
             <button class="btn primary" style="width:auto" type="submit">发布</button>
