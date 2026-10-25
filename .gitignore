@@ -1,3 +1,7 @@
 blog.db
 go-sqlite-blog
 tmp
+
+# 用户上传的图片不入库（目录本身保留）
+static/uploads/*
+!static/uploads/.gitkeep

@@ -18,7 +18,7 @@ Go-SQLite-Blog is a lightweight blogging platform written in Go (Golang). It use
 - 普通作者只能看到已通过审核的评论，也没有任何管理按钮。
 - 角色徽章的颜色：管理员=靛蓝、编辑=绿色、作者=灰色。
 
-### Markdown
+### Markdown 与图片
 
 文章正文使用 Markdown 编写，服务端用 [goldmark](https://github.com/yuin/goldmark) 渲染（GFM 扩展）：
 
@@ -27,6 +27,34 @@ Go-SQLite-Blog is a lightweight blogging platform written in Go (Golang). It use
 - **原始 HTML 标签会被丢弃**（goldmark 默认不开启 `WithUnsafe`），渲染结果可以安全地作为 HTML 输出，无需额外的 XSS 过滤。
 - 首页列表的摘要由 Markdown 渲染后剥离标签得到，因此不会出现 `#`、`**` 之类的标记。
 - 评论内容仍是**纯文本**展示（保留换行），不渲染 Markdown。
+
+图片有两种写法，都会被渲染成 `<img>`：
+
+```markdown
+![说明](/uploads/abc123.png)          <!-- 本地上传的图片 -->
+![说明](https://example.com/a.png)    <!-- 外链图片 -->
+```
+
+- 渲染出的 `<img>` 自动带上 `loading="lazy"`、`decoding="async"`、`referrerpolicy="no-referrer"`：
+  - 长文章里图片延迟加载，不阻塞首屏；
+  - 不发 Referer，绕过多数图床的防盗链，外链图更容易显示出来。
+- `.markdown img { max-width: 100%; height: auto; }`，大图会自适应容器宽度，不会撑破布局。
+
+**上传图片**：在 `/post/new` 编辑器里点「插入图片」选择文件即可。上传走 `fetch` 异步进行，
+成功后自动把 `![文件名](/uploads/xxx.png)` 插到光标位置，**不会丢失已输入的正文**。
+
+上传规则：
+
+| 项目 | 限制 |
+| --- | --- |
+| 权限 | 需登录 |
+| 大小 | ≤ 5 MB |
+| 类型 | PNG / JPEG / GIF / WebP（按**文件头**判定，不信任扩展名与 Content-Type） |
+| 落盘名 | 服务端随机生成（16 字节 hex + 扩展名），不使用用户文件名 |
+| 目录 | `static/uploads/`，映射到 `/uploads/`，已加入 `.gitignore` |
+| 记录 | 同时写入 `media` 表（`file_name` 存原始名，`file_path` 存 URL） |
+
+`/uploads/` 只服务文件，**禁止目录列表**，并且 `/static/templates/` 不会对外暴露。
 
 ### 已实现路由
 
@@ -44,6 +72,8 @@ Go-SQLite-Blog is a lightweight blogging platform written in Go (Golang). It use
 | GET | `/post/new` | 发文表单（未登录 302 到 `/login`） | 登录 |
 | POST | `/post` | 发布文章 | 登录 |
 | POST | `/post/{id}/comment` | 发表评论（`approved=0`，待审核） | 登录 |
+| POST | `/uploads` | 上传文章图片，JSON 返回 `url` / `markdown` | 登录 |
+| GET | `/uploads/{file}` | 访问上传的图片（`static/uploads/`，不列目录） | 公开 |
 | GET | `/admin` | 管理后台：评论审核 + 文章管理 | admin |
 | POST | `/admin/comments/{id}/approve` | 通过评论审核（`approved` 置 1） | admin |
 | POST | `/admin/comments/{id}/delete` | 删除评论 | admin |
@@ -105,7 +135,9 @@ go build -o go-sqlite-blog
 - 评论一律先进入「待审核」，未通过审核前只有管理员能在详情页看到；作者本人提交后会看到「等待审核」的提示。
 - `users.role_id` 的建表默认值仍是 1（admin）。应用层注册已固定写 3（author），但如果你绕过应用直接 `INSERT` 用户，记得显式指定 `role_id`。
 - 管理后台表单没有 CSRF token，依赖 session cookie 的 `SameSite=Lax` 阻止跨站 POST。若要对外部署，建议补 CSRF token。
-- 分类 / 标签 / 媒体 / 静态页面 / 搜索 / 分页等表结构已存在，但尚未实现对应功能。
+- 图片只有上传，**没有图片管理页**：删除图片需要手动删掉 `static/uploads/` 下的文件（`media` 表的记录也会残留）。
+- 上传文件名由服务端随机生成，原始文件名只用于 `alt` 文本和 `media.file_name`，因此同名文件不会互相覆盖。
+- 分类 / 标签 / 静态页面 / 搜索 / 分页等表结构已存在，但尚未实现对应功能。
 
 ## Table of Contents
 
@@ -213,15 +245,17 @@ go-sqlite-blog/
 ├── handlers/                # HTTP handlers
 │   ├── article.go           # 文章列表 / 详情 / 发文 / 评论
 │   ├── markdown.go          # Markdown 渲染（goldmark）与摘要提取
+│   ├── upload.go            # 图片上传
 │   ├── admin.go             # 管理后台：审核评论、删除评论/文章
 │   ├── login.go             # 登录 / 登出
 │   ├── register.go          # 注册
 │   ├── templates.go         # 统一模板加载与渲染
 │   └── session.go           # session 读取辅助
-├── middleware/              # Adapter、session、RequireLogin
+├── middleware/              # Adapter、session、RequireLogin、静态文件
 ├── models/                  # 模型与 SQL（users 使用 go:embed）
 │   └── users/roles.go       # 角色常量、GetRoleID、PromoteToAdmin
 ├── static/templates/        # layout.html + 各页面模板
+├── static/uploads/          # 上传的图片（已 gitignore）
 └── go.mod
 ```
 

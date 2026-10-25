@@ -94,6 +94,12 @@ func main() {
 func setupRouter(adapter *middleware.Adapter) *http.ServeMux {
 	mux := http.NewServeMux()
 
+	// 上传的图片：/uploads/<name> 映射到 static/uploads/<name>，不列目录
+	if err := os.MkdirAll(handlers.UploadsDir, 0o755); err != nil {
+		slog.Error("main: Error creating uploads directory", "dir", handlers.UploadsDir, "error", err)
+	}
+	mux.Handle("GET "+handlers.UploadsURLPrefix, middleware.StaticFiles(handlers.UploadsURLPrefix, handlers.UploadsDir))
+
 	mux.Handle("GET /health", adapter.HTTPToContextHandler(handlers.Health))
 	mux.Handle("GET /time-consuming", adapter.HTTPToContextHandler(handlers.TimeConsumingHandler))
 
@@ -108,6 +114,9 @@ func setupRouter(adapter *middleware.Adapter) *http.ServeMux {
 	mux.Handle("POST /post", adapter.HTTPToContextHandler(middleware.RequireLogin(handlers.CreateArticle)))
 	mux.Handle("GET /post/{id}", adapter.HTTPToContextHandler(handlers.ShowArticle))
 	mux.Handle("POST /post/{id}/comment", adapter.HTTPToContextHandler(middleware.RequireLogin(handlers.CreateComment)))
+
+	// 图片上传（登录用户即可，用于在文章中插图）
+	mux.Handle("POST "+handlers.UploadsPostPath, adapter.HTTPToContextHandler(middleware.RequireLogin(handlers.UploadImage)))
 
 	// 管理后台（handler 内部校验 admin 角色，非管理员返回 403 页面）
 	mux.Handle("GET /admin", adapter.HTTPToContextHandler(handlers.AdminDashboard))

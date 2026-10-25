@@ -10,8 +10,14 @@
         <div class="form-group">
             <label for="content">正文（支持 Markdown）</label>
             <textarea id="content" name="content" required>{{.FormContent}}</textarea>
+            <div class="actions" style="margin-top:0.6rem">
+                <input type="file" id="image-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none">
+                <button class="btn small" type="button" id="image-button">插入图片</button>
+                <span class="excerpt" id="image-status">支持 PNG / JPEG / GIF / WebP，最大 5 MB</span>
+            </div>
             <p class="excerpt" style="margin:0.4rem 0 0">
                 支持 Markdown：# 标题、**粗体**、*斜体*、`代码`、- 列表、&gt; 引用、表格、链接、图片。
+                图片语法为 <code>![说明](/uploads/文件名)</code>，也可以直接贴外链地址。
                 出于安全考虑，正文中的原始 HTML 标签会被忽略。
             </p>
         </div>
@@ -21,4 +27,61 @@
         </div>
     </form>
 </section>
+
+<script>
+(function () {
+    var input = document.getElementById('image-input');
+    var button = document.getElementById('image-button');
+    var status = document.getElementById('image-status');
+    var textarea = document.getElementById('content');
+    if (!input || !button || !textarea) return;
+
+    button.addEventListener('click', function () { input.click(); });
+
+    function insertAtCursor(text) {
+        var start = textarea.selectionStart;
+        var end = textarea.selectionEnd;
+        var before = textarea.value.slice(0, start);
+        var after = textarea.value.slice(end);
+        // 保证图片语法单独成段
+        var prefix = before === '' || /\n$/.test(before) ? '' : '\n\n';
+        var suffix = after === '' || /^\n/.test(after) ? '' : '\n\n';
+        textarea.value = before + prefix + text + suffix + after;
+        var pos = (before + prefix + text).length;
+        textarea.focus();
+        textarea.setSelectionRange(pos, pos);
+    }
+
+    input.addEventListener('change', function () {
+        var file = input.files && input.files[0];
+        if (!file) return;
+
+        status.textContent = '上传中…';
+        var form = new FormData();
+        form.append('image', file);
+
+        fetch('/uploads', {
+            method: 'POST',
+            body: form,
+            headers: { 'Accept': 'application/json' },
+            credentials: 'same-origin'
+        }).then(function (res) {
+            return res.json().then(function (data) {
+                return { ok: res.ok, data: data };
+            });
+        }).then(function (result) {
+            if (!result.ok) {
+                status.textContent = '上传失败：' + (result.data && result.data.error ? result.data.error : '未知错误');
+                return;
+            }
+            insertAtCursor(result.data.markdown);
+            status.textContent = '已插入：' + result.data.filename;
+        }).catch(function (err) {
+            status.textContent = '上传失败：' + err.message;
+        }).then(function () {
+            input.value = '';
+        });
+    });
+})();
+</script>
 {{end}}

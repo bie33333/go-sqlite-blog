@@ -9,8 +9,12 @@ import (
 	"unicode/utf8"
 
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/parser"
 	goldmarkhtml "github.com/yuin/goldmark/renderer/html"
+	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/util"
 )
 
 // markdownConverter 是共用的 goldmark 实例（线程安全，可在多个请求间复用）。
@@ -21,10 +25,36 @@ import (
 // 同时 WithHardWraps 让单个换行渲染成 <br>，符合博客写作习惯。
 var markdownConverter = goldmark.New(
 	goldmark.WithExtensions(extension.GFM),
+	goldmark.WithParserOptions(
+		parser.WithASTTransformers(
+			util.Prioritized(imageAttributeTransformer{}, 100),
+		),
+	),
 	goldmark.WithRendererOptions(
 		goldmarkhtml.WithHardWraps(),
 	),
 )
+
+// imageAttributeTransformer 给渲染出的 <img> 补上几个属性：
+//   - loading="lazy" / decoding="async"：长文章里图片延迟加载，不阻塞首屏
+//   - referrerpolicy="no-referrer"：外链图床常做 Referer 防盗链，不发送 referer 才显示得出来
+//
+// goldmark 的 ImageAttributeFilter 白名单包含这三个属性，所以能被渲染出来。
+type imageAttributeTransformer struct{}
+
+func (imageAttributeTransformer) Transform(doc *ast.Document, _ text.Reader, _ parser.Context) {
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		if img, ok := n.(*ast.Image); ok {
+			img.SetAttributeString("loading", []byte("lazy"))
+			img.SetAttributeString("decoding", []byte("async"))
+			img.SetAttributeString("referrerpolicy", []byte("no-referrer"))
+		}
+		return ast.WalkContinue, nil
+	})
+}
 
 // renderMarkdown 把 Markdown 源文渲染成可直接嵌入模板的 HTML。
 func renderMarkdown(source string) (template.HTML, error) {
