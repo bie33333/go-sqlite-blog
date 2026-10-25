@@ -57,17 +57,28 @@ func (imageAttributeTransformer) Transform(doc *ast.Document, _ text.Reader, _ p
 }
 
 // renderMarkdown 把 Markdown 源文渲染成可直接嵌入模板的 HTML。
+//
+// 正文里粘贴的 <img ...> 会先被抽取成占位符（见 embedded_image.go），
+// 渲染后再替换成按白名单重建的图片标签，因此除了图片以外的原始 HTML
+// 依然会被 goldmark 丢弃。
 func renderMarkdown(source string) (template.HTML, error) {
 	if strings.TrimSpace(source) == "" {
 		return "", nil
 	}
+
+	source, embedded := prepareEmbeddedImages(source)
 
 	var buf bytes.Buffer
 	if err := markdownConverter.Convert([]byte(source), &buf); err != nil {
 		return "", err
 	}
 
-	return template.HTML(buf.String()), nil //nolint:gosec // goldmark 默认转义原始 HTML
+	out := buf.String()
+	for placeholder, tag := range embedded {
+		out = strings.ReplaceAll(out, placeholder, tag)
+	}
+
+	return template.HTML(out), nil //nolint:gosec // 原始 HTML 已被 goldmark 丢弃，图片标签按白名单重建
 }
 
 var htmlTagPattern = regexp.MustCompile(`(?s)<[^>]*>`)
@@ -75,7 +86,8 @@ var htmlTagPattern = regexp.MustCompile(`(?s)<[^>]*>`)
 // markdownToText 把 Markdown 转成纯文本，用于列表页摘要。
 // 先经 goldmark 渲染再剥离标签，这样不会把 "#"、"**" 等标记带进摘要。
 func markdownToText(source string) string {
-	rendered, err := renderMarkdown(source)
+	// 先去掉 HTML 图片，避免摘要里留下占位符
+	rendered, err := renderMarkdown(stripHTMLImages(source))
 	if err != nil {
 		return strings.Join(strings.Fields(source), " ")
 	}

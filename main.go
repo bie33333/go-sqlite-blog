@@ -72,16 +72,25 @@ func main() {
 	}
 
 	// Graceful shutdown
+	// 监听失败（例如端口被占用）必须让进程退出，否则会僵死在下面的 <-quit 上，
+	// 让人误以为「改了代码但服务没生效」。
+	serverErr := make(chan error, 1)
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("main: Error starting server", "error", err)
+			serverErr <- err
 		}
 	}()
 
 	// Wait for interrupt signal
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt)
-	<-quit
+
+	select {
+	case err := <-serverErr:
+		slog.Error("main: Error starting server", "error", err, "port", cfg.Port)
+		os.Exit(1)
+	case <-quit:
+	}
 
 	// Gracefully shutdown the server
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

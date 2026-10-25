@@ -35,10 +35,45 @@ Go-SQLite-Blog is a lightweight blogging platform written in Go (Golang). It use
 ![说明](https://example.com/a.png)    <!-- 外链图片 -->
 ```
 
-- 渲染出的 `<img>` 自动带上 `loading="lazy"`、`decoding="async"`、`referrerpolicy="no-referrer"`：
-  - 长文章里图片延迟加载，不阻塞首屏；
-  - 不发 Referer，绕过多数图床的防盗链，外链图更容易显示出来。
-- `.markdown img { max-width: 100%; height: auto; }`，大图会自适应容器宽度，不会撑破布局。
+**从网页/AI 直接粘贴的内容里的图片也能显示**，三种常见形态都支持：
+
+```html
+<img src="https://example.com/a.png">                              <!-- 原始 HTML -->
+<img src="https://example.com/a.png" style="zoom: 5%;">            <!-- 带样式的 HTML -->
+```
+```markdown
+[image](https://example.com/a.png)   <!-- ChatGPT/搜索引擎复制出来的伪链接 -->
+```
+
+实现方式是**白名单抽取**，而不是打开 goldmark 的 `WithUnsafe`（那等于允许任意 HTML）：
+
+1. 渲染前把 `<img ...>` 与 `[image](url)` 抽出来，换成占位符；
+2. 按白名单重建标签，只保留 `src` / `alt` / `title` / `width` / `height` 与尺寸类样式；
+3. 渲染后把占位符替换回重建好的标签。
+
+因此被保留下来的只有图片，`<script>`、`<iframe>`、`onerror=` 等依然会被丢弃。
+
+| 属性 | 处理方式 |
+| --- | --- |
+| `src` | 只允许 `http(s)://`、`/`、`./`；拒绝 `javascript:`、`data:`、`vbscript:`、`//host` |
+| `alt` | 原样保留；缺失时用文件名兜底（长 hash 文件名降级为「图片」） |
+| `title` | 保留 |
+| `width` / `height` | 只接受纯数字 |
+| `style` | 白名单：`width` `height` `max-width` `max-height` `object-fit` `border-radius` |
+| `style` 中的 `zoom` | **丢弃**。它不是标准 CSS，复制网页时常带出 `zoom: 5%` 这种把图缩到几乎看不见的值；要控制大小请用 `width` |
+| `style` 中的 `background` / `position` 等 | 丢弃（`background: url()` 可引入外部资源） |
+| `onerror` / `onclick` 等事件属性 | 丢弃 |
+| `<script>` / `<iframe>` 等其它标签 | 丢弃（保持原有安全模型） |
+
+> 提示：`[image](url)` 只在链接文字恰为 `image` / `图片` / `图像` 时才转成图片，
+> 普通链接（如 `[点这里](url)`）不受影响。
+
+渲染出的 `<img>` 自动带上 `loading="lazy"`、`decoding="async"`、`referrerpolicy="no-referrer"`：
+
+- 长文章里图片延迟加载，不阻塞首屏；
+- 不发 Referer，绕过多数图床的防盗链，外链图更容易显示出来。
+
+`.markdown img { max-width: 100%; height: auto; }`，大图会自适应容器宽度，不会撑破布局。
 
 **上传图片**：在 `/post/new` 编辑器里点「插入图片」选择文件即可。上传走 `fetch` 异步进行，
 成功后自动把 `![文件名](/uploads/xxx.png)` 插到光标位置，**不会丢失已输入的正文**。
@@ -245,6 +280,7 @@ go-sqlite-blog/
 ├── handlers/                # HTTP handlers
 │   ├── article.go           # 文章列表 / 详情 / 发文 / 评论
 │   ├── markdown.go          # Markdown 渲染（goldmark）与摘要提取
+│   ├── embedded_image.go    # 正文中粘贴的 HTML <img> 白名单抽取与重建
 │   ├── upload.go            # 图片上传
 │   ├── admin.go             # 管理后台：审核评论、删除评论/文章
 │   ├── login.go             # 登录 / 登出
