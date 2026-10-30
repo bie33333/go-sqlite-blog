@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/AndreHeber/go-sqlite-blog/config"
@@ -83,7 +84,7 @@ func main() {
 
 	// Wait for interrupt signal
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 
 	select {
 	case err := <-serverErr:
@@ -122,6 +123,8 @@ func setupRouter(adapter *middleware.Adapter) *http.ServeMux {
 	mux.Handle("GET /post/new", adapter.HTTPToContextHandler(middleware.RequireLogin(handlers.ShowEditor)))
 	mux.Handle("POST /post", adapter.HTTPToContextHandler(middleware.RequireLogin(handlers.CreateArticle)))
 	mux.Handle("GET /post/{id}", adapter.HTTPToContextHandler(handlers.ShowArticle))
+	mux.Handle("GET /post/{id}/edit", adapter.HTTPToContextHandler(middleware.RequireLogin(handlers.ShowEditArticle)))
+	mux.Handle("POST /post/{id}/edit", adapter.HTTPToContextHandler(middleware.RequireLogin(handlers.UpdateArticle)))
 	mux.Handle("POST /post/{id}/comment", adapter.HTTPToContextHandler(middleware.RequireLogin(handlers.CreateComment)))
 
 	// 图片上传（登录用户即可，用于在文章中插图）
@@ -131,6 +134,7 @@ func setupRouter(adapter *middleware.Adapter) *http.ServeMux {
 	mux.Handle("GET /admin", adapter.HTTPToContextHandler(handlers.AdminDashboard))
 	mux.Handle("POST /admin/comments/{id}/approve", adapter.HTTPToContextHandler(handlers.ApproveComment))
 	mux.Handle("POST /admin/comments/{id}/delete", adapter.HTTPToContextHandler(handlers.DeleteComment))
+	mux.Handle("POST /admin/articles/{id}/approve", adapter.HTTPToContextHandler(handlers.ApproveArticle))
 	mux.Handle("POST /admin/articles/{id}/delete", adapter.HTTPToContextHandler(handlers.DeleteArticle))
 
 	// 注意：Go 1.22+ ServeMux 中 "GET /" 会兜底所有未匹配的 GET 路径，

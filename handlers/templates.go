@@ -28,12 +28,14 @@ type ViewData struct {
 	Message  string
 
 	// 页面数据
-	Articles      []models.Article
-	Article       models.Article
-	ArticleHTML   template.HTML
-	Comments      []models.Comment
-	AdminComments []models.Comment
-	ArticleID     int64
+	Articles       []models.Article
+	Article        models.Article
+	ArticleHTML    template.HTML
+	Comments       []models.Comment
+	AdminComments  []models.Comment
+	ArticleID      int64
+	CanEditArticle bool
+	EditingArticle bool
 
 	// 表单回显
 	FormTitle   string

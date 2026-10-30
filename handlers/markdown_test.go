@@ -143,6 +143,23 @@ func TestRenderMarkdownEmbeddedImages(t *testing.T) {
 	}
 }
 
+func TestRenderMarkdownMermaidFence(t *testing.T) {
+	source := "```mermaid\nflowchart LR\n    A[开始] --> B[结束]\n```"
+
+	got, err := renderMarkdown(source)
+	if err != nil {
+		t.Fatalf("renderMarkdown() error = %v", err)
+	}
+
+	out := string(got)
+	if !strings.Contains(out, `<code class="language-mermaid">`) {
+		t.Fatalf("Mermaid 代码块应保留 language-mermaid class，实际输出: %s", out)
+	}
+	if !strings.Contains(out, "A[开始] --&gt; B[结束]") {
+		t.Errorf("Mermaid 源码应安全地作为代码文本输出，实际输出: %s", out)
+	}
+}
+
 func TestExcerptStripsEmbeddedImages(t *testing.T) {
 	content := "开头文字\n\n<img src=\"/uploads/a.png\" alt=\"架构图\">\n\n结尾文字"
 	got := excerpt(content, 100)

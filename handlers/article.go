@@ -10,24 +10,46 @@ import (
 
 	"github.com/AndreHeber/go-sqlite-blog/middleware"
 	"github.com/AndreHeber/go-sqlite-blog/models"
+	"github.com/AndreHeber/go-sqlite-blog/models/users"
 )
 
-// articles 表本身没有作者字段，作者信息取自 article_revisions 中最早的一条记录
-// （创建文章时写入的初版），这样无需改动现有表结构。
+// articles 表的作者信息取自 article_revisions 中最早的一条记录。
 const listArticlesQuery = `
 SELECT a.id, a.title, a.content,
        strftime('%Y-%m-%d %H:%M', a.created_at),
-       COALESCE(u.username, '')
+       COALESCE(u.username, ''), a.approved
 FROM articles a
 LEFT JOIN article_revisions r
        ON r.id = (SELECT MIN(id) FROM article_revisions WHERE article_id = a.id)
 LEFT JOIN users u ON u.id = r.edited_by
 ORDER BY a.created_at DESC, a.id DESC`
 
+const listPublishedArticlesQuery = `
+SELECT a.id, a.title, a.content,
+       strftime('%Y-%m-%d %H:%M', a.created_at),
+       COALESCE(u.username, ''), a.approved
+FROM articles a
+LEFT JOIN article_revisions r
+       ON r.id = (SELECT MIN(id) FROM article_revisions WHERE article_id = a.id)
+LEFT JOIN users u ON u.id = r.edited_by
+WHERE a.approved = 1
+ORDER BY a.created_at DESC, a.id DESC`
+
+const listUserArticlesQuery = `
+SELECT a.id, a.title, a.content,
+       strftime('%Y-%m-%d %H:%M', a.created_at),
+       COALESCE(u.username, ''), a.approved
+FROM articles a
+LEFT JOIN article_revisions r
+       ON r.id = (SELECT MIN(id) FROM article_revisions WHERE article_id = a.id)
+LEFT JOIN users u ON u.id = r.edited_by
+WHERE a.approved = 1 OR r.edited_by = ?
+ORDER BY a.created_at DESC, a.id DESC`
+
 const getArticleQuery = `
 SELECT a.id, a.title, a.content,
        strftime('%Y-%m-%d %H:%M', a.created_at),
-       COALESCE(u.username, '')
+       COALESCE(u.username, ''), a.approved
 FROM articles a
 LEFT JOIN article_revisions r
        ON r.id = (SELECT MIN(id) FROM article_revisions WHERE article_id = a.id)
@@ -56,7 +78,23 @@ func ListArticles(a *middleware.Adapter) error {
 	}
 
 	env := models.EnvFromAdapter(a)
-	rows, err := env.DB.QueryContext(env.Ctx, listArticlesQuery)
+	query := listPublishedArticlesQuery
+	var rows *sql.Rows
+	var err error
+	if session, ok := currentSession(a.Request); ok {
+		roleID, err := currentRoleID(a)
+		if err != nil {
+			return fmt.Errorf("ListArticles: %w", err)
+		}
+		if users.IsAdminRole(roleID) {
+			query = listArticlesQuery
+			rows, err = env.DB.QueryContext(env.Ctx, query)
+		} else {
+			rows, err = env.DB.QueryContext(env.Ctx, listUserArticlesQuery, session.UserID)
+		}
+	} else {
+		rows, err = env.DB.QueryContext(env.Ctx, query)
+	}
 	if err != nil {
 		return fmt.Errorf("ListArticles: %w", err)
 	}
@@ -65,7 +103,7 @@ func ListArticles(a *middleware.Adapter) error {
 	articles := make([]models.Article, 0)
 	for rows.Next() {
 		var article models.Article
-		if err := rows.Scan(&article.ID, &article.Title, &article.Content, &article.CreatedAt, &article.Author); err != nil {
+		if err := rows.Scan(&article.ID, &article.Title, &article.Content, &article.CreatedAt, &article.Author, &article.Approved); err != nil {
 			return fmt.Errorf("ListArticles: %w", err)
 		}
 		article.Excerpt = excerpt(article.Content, 160)
@@ -96,6 +134,15 @@ func ShowArticle(a *middleware.Adapter) error {
 	if err != nil {
 		return fmt.Errorf("ShowArticle: %w", err)
 	}
+	if !article.Approved {
+		allowed, err := canEditArticle(a, id)
+		if err != nil {
+			return fmt.Errorf("ShowArticle: %w", err)
+		}
+		if !allowed {
+			return notFound(a, "文章不存在")
+		}
+	}
 
 	comments, err := listComments(env, id, isAdminUser(a))
 	if err != nil {
@@ -109,7 +156,6 @@ func ShowArticle(a *middleware.Adapter) error {
 	case "1":
 		message = "评论已提交，等待管理员审核后展示"
 	}
-
 	return renderPostPage(a, article, comments, message, "")
 }
 
@@ -117,7 +163,7 @@ func ShowArticle(a *middleware.Adapter) error {
 func getArticle(env *models.Env, id int64) (models.Article, error) {
 	var article models.Article
 	err := env.DB.QueryRowContext(env.Ctx, getArticleQuery, id).
-		Scan(&article.ID, &article.Title, &article.Content, &article.CreatedAt, &article.Author)
+		Scan(&article.ID, &article.Title, &article.Content, &article.CreatedAt, &article.Author, &article.Approved)
 	return article, err
 }
 
@@ -160,14 +206,20 @@ func renderPostPage(a *middleware.Adapter, article models.Article, comments []mo
 		return fmt.Errorf("renderPostPage: %w", err)
 	}
 
+	canEdit, err := canEditArticle(a, article.ID)
+	if err != nil {
+		return fmt.Errorf("renderPostPage: %w", err)
+	}
+
 	return renderPage(a, "post.html", ViewData{
-		Title:       article.Title,
-		Article:     article,
-		ArticleHTML: bodyHTML,
-		ArticleID:   article.ID,
-		Comments:    comments,
-		Message:     notice,
-		Error:       errMsg,
+		Title:          article.Title,
+		Article:        article,
+		ArticleHTML:    bodyHTML,
+		ArticleID:      article.ID,
+		Comments:       comments,
+		Message:        notice,
+		Error:          errMsg,
+		CanEditArticle: canEdit,
 	})
 }
 
@@ -230,6 +282,36 @@ func ShowEditor(a *middleware.Adapter) error {
 	return renderPage(a, "editor.html", ViewData{Title: "写文章"})
 }
 
+// ShowEditArticle 渲染现有文章的编辑表单（仅原作者或管理员）。
+func ShowEditArticle(a *middleware.Adapter) error {
+	id, err := strconv.ParseInt(a.Request.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		return notFound(a, "文章不存在")
+	}
+
+	env := models.EnvFromAdapter(a)
+	article, err := getArticle(env, id)
+	if err == sql.ErrNoRows {
+		return notFound(a, "文章不存在")
+	}
+	if err != nil {
+		return fmt.Errorf("ShowEditArticle: %w", err)
+	}
+
+	allowed, err := requireArticleEditPermission(a, id)
+	if !allowed {
+		return err
+	}
+
+	return renderPage(a, "editor.html", ViewData{
+		Title:          "编辑文章",
+		ArticleID:      article.ID,
+		EditingArticle: true,
+		FormTitle:      article.Title,
+		FormContent:    article.Content,
+	})
+}
+
 // CreateArticle 处理发文表单（需登录）
 func CreateArticle(a *middleware.Adapter) error {
 	r := a.Request
@@ -244,22 +326,18 @@ func CreateArticle(a *middleware.Adapter) error {
 		http.Redirect(a.ResponseWriter, r, "/login", http.StatusSeeOther)
 		return nil
 	}
+	roleID, err := currentRoleID(a)
+	if err != nil {
+		return fmt.Errorf("CreateArticle: %w", err)
+	}
 
 	title := strings.TrimSpace(r.FormValue("title"))
 	content := strings.TrimSpace(r.FormValue("content"))
 
-	if title == "" || content == "" {
+	if formError := validateArticle(title, content); formError != "" {
 		return renderPage(a, "editor.html", ViewData{
 			Title:       "写文章",
-			Error:       "标题和正文都不能为空",
-			FormTitle:   title,
-			FormContent: content,
-		})
-	}
-	if utf8.RuneCountInString(title) > 200 {
-		return renderPage(a, "editor.html", ViewData{
-			Title:       "写文章",
-			Error:       "标题不能超过 200 个字符",
+			Error:       formError,
 			FormTitle:   title,
 			FormContent: content,
 		})
@@ -272,8 +350,9 @@ func CreateArticle(a *middleware.Adapter) error {
 	}
 	defer tx.Rollback()
 
+	approved := users.IsAdminRole(roleID)
 	result, err := tx.ExecContext(env.Ctx,
-		`INSERT INTO articles (title, content) VALUES (?, ?)`, title, content)
+		`INSERT INTO articles (title, content, approved) VALUES (?, ?, ?)`, title, content, approved)
 	if err != nil {
 		return fmt.Errorf("CreateArticle: %w", err)
 	}
@@ -297,4 +376,142 @@ func CreateArticle(a *middleware.Adapter) error {
 
 	http.Redirect(a.ResponseWriter, r, fmt.Sprintf("/post/%d", articleID), http.StatusSeeOther)
 	return nil
+}
+
+// UpdateArticle 保存文章修改，并记录一条修订。
+func UpdateArticle(a *middleware.Adapter) error {
+	r := a.Request
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		return notFound(a, "文章不存在")
+	}
+
+	env := models.EnvFromAdapter(a)
+	article, err := getArticle(env, id)
+	if err == sql.ErrNoRows {
+		return notFound(a, "文章不存在")
+	}
+	if err != nil {
+		return fmt.Errorf("UpdateArticle: %w", err)
+	}
+
+	allowed, err := requireArticleEditPermission(a, id)
+	if !allowed {
+		return err
+	}
+	if err := r.ParseForm(); err != nil {
+		return fmt.Errorf("UpdateArticle: %w", err)
+	}
+
+	title := strings.TrimSpace(r.FormValue("title"))
+	content := strings.TrimSpace(r.FormValue("content"))
+	if formError := validateArticle(title, content); formError != "" {
+		return renderPage(a, "editor.html", ViewData{
+			Title:          "编辑文章",
+			ArticleID:      article.ID,
+			EditingArticle: true,
+			FormTitle:      title,
+			FormContent:    content,
+			Error:          formError,
+		})
+	}
+
+	session, ok := currentSession(r)
+	if !ok {
+		http.Redirect(a.ResponseWriter, r, "/login", http.StatusSeeOther)
+		return nil
+	}
+	roleID, err := currentRoleID(a)
+	if err != nil {
+		return fmt.Errorf("UpdateArticle: %w", err)
+	}
+
+	tx, err := env.DB.BeginTx(env.Ctx, nil)
+	if err != nil {
+		return fmt.Errorf("UpdateArticle: %w", err)
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(env.Ctx,
+		`UPDATE articles SET title = ?, content = ?, approved = ? WHERE id = ?`,
+		title, content, users.IsAdminRole(roleID), id)
+	if err != nil {
+		return fmt.Errorf("UpdateArticle: %w", err)
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return fmt.Errorf("UpdateArticle: %w", err)
+	} else if affected == 0 {
+		return notFound(a, "文章不存在")
+	}
+
+	if _, err := tx.ExecContext(env.Ctx,
+		`INSERT INTO article_revisions (article_id, title, content, edited_by) VALUES (?, ?, ?, ?)`,
+		id, title, content, session.UserID); err != nil {
+		return fmt.Errorf("UpdateArticle: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("UpdateArticle: %w", err)
+	}
+
+	http.Redirect(a.ResponseWriter, r, fmt.Sprintf("/post/%d", id), http.StatusSeeOther)
+	return nil
+}
+
+func validateArticle(title, content string) string {
+	if title == "" || content == "" {
+		return "标题和正文都不能为空"
+	}
+	if utf8.RuneCountInString(title) > 200 {
+		return "标题不能超过 200 个字符"
+	}
+	return ""
+}
+
+func canEditArticle(a *middleware.Adapter, articleID int64) (bool, error) {
+	session, ok := currentSession(a.Request)
+	if !ok {
+		return false, nil
+	}
+
+	roleID, err := currentRoleID(a)
+	if err != nil {
+		return false, fmt.Errorf("canEditArticle: %w", err)
+	}
+	if roleID == users.RoleAdmin {
+		return true, nil
+	}
+
+	var authorID sql.NullInt64
+	env := models.EnvFromAdapter(a)
+	err = env.DB.QueryRowContext(
+		env.Ctx,
+		`SELECT edited_by FROM article_revisions WHERE article_id = ? ORDER BY id ASC LIMIT 1`,
+		articleID,
+	).Scan(&authorID)
+	if err != nil && err != sql.ErrNoRows {
+		return false, fmt.Errorf("canEditArticle: %w", err)
+	}
+	return authorID.Valid && authorID.Int64 == session.UserID, nil
+}
+
+func requireArticleEditPermission(a *middleware.Adapter, articleID int64) (bool, error) {
+	if _, ok := currentSession(a.Request); !ok {
+		http.Redirect(a.ResponseWriter, a.Request, "/login", http.StatusSeeOther)
+		return false, nil
+	}
+
+	allowed, err := canEditArticle(a, articleID)
+	if err != nil {
+		return false, err
+	}
+	if allowed {
+		return true, nil
+	}
+
+	a.ResponseWriter.WriteHeader(http.StatusForbidden)
+	return false, renderPage(a, "403.html", ViewData{
+		Title: "403",
+		Error: "只有文章作者或管理员可以编辑此文章",
+	})
 }

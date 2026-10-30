@@ -4,25 +4,47 @@ Go-SQLite-Blog is a lightweight blogging platform written in Go (Golang). It use
 
 > 说明：本项目仍在开发中。README 下面的 Features 列表是长期目标，实际已实现的功能以「当前实现状态」一节为准。
 
+## Docker 部署与 CI/CD
+
+GitHub Actions 会在针对 `main` 的 Pull Request 上运行测试并构建 Docker 镜像（不发布）；推送到 `main` 或手动触发工作流时，在测试通过后发布镜像到 GitHub Container Registry（GHCR）：
+
+- `ghcr.io/andreheber/go-sqlite-blog:latest`
+- `ghcr.io/andreheber/go-sqlite-blog:sha-<commit>`
+
+在服务器安装 Docker Compose 后，下载 [compose.yaml](./compose.yaml)，启动服务：
+
+```bash
+docker compose pull
+docker compose up -d
+docker compose logs -f blog
+```
+
+默认监听服务器的 `8080` 端口；可通过 `BLOG_PORT` 修改宿主机端口。SQLite 数据库和上传图片分别保存在 Docker 命名卷 `blog-data` 与 `blog-uploads` 中，重建容器或升级镜像不会删除它们。升级时再次执行 `docker compose pull && docker compose up -d`。首次发布的 GHCR 包若为私有，需要在 GitHub 包设置中将其设为公开，或在服务器使用有读取该包权限的凭据登录 GHCR。
+
+更改 `main` 分支保护设置后，可将此工作流的 `test` 和 `publish-image` 作业作为 CI 检查项。此流程负责构建和发布镜像到 GHCR，不会自动连接某台服务器部署；服务器上的更新命令仍需手动运行。
+
 ## 当前实现状态（最小可用博客）
 
-目前已经可以「注册 / 登录 / 发文 / 看文章 / 评论 / 管理员审核」。
+目前已经可以「注册 / 登录 / 发文（审核后发布）/ 看文章 / 评论 / 管理员审核」。
 
 ### 身份展示与管理入口
 
 - 登录后导航栏会显示 `用户名 + 角色徽章`（管理员 / 编辑 / 作者），未登录不显示。
 - **管理员**额外看到：
   - 导航栏「管理」→ `/admin`（评论审核 + 文章管理）
-  - 文章详情页顶部的「管理后台」「删除本文」按钮
+  - 文章详情页顶部的「编辑本文」「管理后台」「删除本文」按钮
   - 详情页每条评论的「通过」「删除」按钮（含待审核评论，页面会提示这是管理员视角）
-- 普通作者只能看到已通过审核的评论，也没有任何管理按钮。
+- 文章作者和管理员可以编辑文章；其他用户不能编辑。
+- 普通用户发布的文章以及后续修改都需要管理员审核；管理员发布或修改的文章直接公开。
+- 普通作者只能看到已通过审核的评论，也不能管理其他用户的文章。
 - 角色徽章的颜色：管理员=靛蓝、编辑=绿色、作者=灰色。
 
 ### Markdown 与图片
 
 文章正文使用 Markdown 编写，服务端用 [goldmark](https://github.com/yuin/goldmark) 渲染（GFM 扩展）：
 
-- 支持：标题、粗体/斜体/删除线、行内代码与代码块（带语言高亮 class）、有序/无序列表、引用、表格、链接、图片、任务列表、分隔线。
+- 支持：标题、粗体/斜体/删除线、行内代码与代码块（带语言高亮 class）、有序/无序列表、引用、表格、链接、图片、任务列表、分隔线，以及 Mermaid 图表。
+- Mermaid 使用 ` ```mermaid` 围栏代码，在文章详情页由浏览器按需从 jsDelivr 加载 Mermaid 渲染；若 CDN 不可用，仍会显示原始图表代码。
 - 单个换行会渲染为 `<br>`（`WithHardWraps`），符合博客书写习惯。
 - **原始 HTML 标签会被丢弃**（goldmark 默认不开启 `WithUnsafe`），渲染结果可以安全地作为 HTML 输出，无需额外的 XSS 过滤。
 - 首页列表的摘要由 Markdown 渲染后剥离标签得到，因此不会出现 `#`、`**` 之类的标记。
@@ -146,11 +168,14 @@ Go-SQLite-Blog is a lightweight blogging platform written in Go (Golang). It use
 | GET | `/post/{id}` | 文章详情 + 已通过审核的评论 | 公开 |
 | GET | `/post/new` | 发文表单（未登录 302 到 `/login`） | 登录 |
 | POST | `/post` | 发布文章 | 登录 |
+| GET | `/post/{id}/edit` | 编辑文章表单 | 原作者或 admin |
+| POST | `/post/{id}/edit` | 保存文章修改并记录修订 | 原作者或 admin |
 | POST | `/post/{id}/comment` | 发表评论（`approved=0`，待审核） | 登录 |
 | POST | `/uploads` | 上传文章图片，JSON 返回 `url` / `markdown` | 登录 |
 | GET | `/uploads/{file}` | 访问上传的图片（`static/uploads/`，不列目录） | 公开 |
 | GET | `/admin` | 管理后台：评论审核 + 文章管理 | admin |
 | POST | `/admin/comments/{id}/approve` | 通过评论审核（`approved` 置 1） | admin |
+| POST | `/admin/articles/{id}/approve` | 审核并发布文章 | admin |
 | POST | `/admin/comments/{id}/delete` | 删除评论 | admin |
 | POST | `/admin/articles/{id}/delete` | 删除文章（级联清理评论/修订/标签/点赞） | admin |
 
@@ -162,7 +187,7 @@ Go-SQLite-Blog is a lightweight blogging platform written in Go (Golang). It use
 | --- | --- | --- |
 | 1 | admin | 管理员，可访问 `/admin` |
 | 2 | editor | 预留，暂无专属权限 |
-| 3 | author | **注册用户的默认角色**，可登录/发文/评论 |
+| 3 | author | **注册用户的默认角色**，可登录/发文/评论/编辑自己创建的文章 |
 
 角色以**数据库中的 `users.role_id` 为准**（不是登录时写进 session 的值），所以提升/降级后立即生效，无需重新登录。
 
@@ -207,6 +232,8 @@ go build -o go-sqlite-blog
 ### 已知限制
 
 - `articles` 表没有作者字段：作者信息保存在 `article_revisions` 的第一条记录（创建时写入的初版，`edited_by`）中，列表/详情页据此显示作者。
+- 文章编辑权限使用 `article_revisions` 中最早的 `edited_by` 作为原作者；管理员可编辑所有文章。每次保存都会新增一条修订记录。
+- 普通用户新建或修改的文章默认待审核，只有管理员审核通过后才对其他访客公开。管理员创建或修改的文章会直接公开。升级时已有文章保留已发布状态。
 - 评论一律先进入「待审核」，未通过审核前只有管理员能在详情页看到；作者本人提交后会看到「等待审核」的提示。
 - `users.role_id` 的建表默认值仍是 1（admin）。应用层注册已固定写 3（author），但如果你绕过应用直接 `INSERT` 用户，记得显式指定 `role_id`。
 - 管理后台表单没有 CSRF token，依赖 session cookie 的 `SameSite=Lax` 阻止跨站 POST。若要对外部署，建议补 CSRF token。

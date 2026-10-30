@@ -118,6 +118,30 @@ func ApproveComment(a *middleware.Adapter) error {
 	return nil
 }
 
+// ApproveArticle publishes a pending article.
+func ApproveArticle(a *middleware.Adapter) error {
+	if ok, err := requireAdmin(a); !ok {
+		return err
+	}
+
+	id, err := strconv.ParseInt(a.Request.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		return notFound(a, "文章不存在")
+	}
+
+	env := models.EnvFromAdapter(a)
+	result, err := env.DB.ExecContext(env.Ctx, `UPDATE articles SET approved = 1 WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("ApproveArticle: %w", err)
+	}
+	if affected, err := result.RowsAffected(); err == nil && affected == 0 {
+		return notFound(a, "文章不存在")
+	}
+
+	http.Redirect(a.ResponseWriter, a.Request, adminRedirectTarget(a.Request), http.StatusSeeOther)
+	return nil
+}
+
 // DeleteComment 删除评论
 func DeleteComment(a *middleware.Adapter) error {
 	if ok, err := requireAdmin(a); !ok {
@@ -247,7 +271,7 @@ func listAllArticles(env *models.Env) ([]models.Article, error) {
 	articles := make([]models.Article, 0)
 	for rows.Next() {
 		var article models.Article
-		if err := rows.Scan(&article.ID, &article.Title, &article.Content, &article.CreatedAt, &article.Author); err != nil {
+		if err := rows.Scan(&article.ID, &article.Title, &article.Content, &article.CreatedAt, &article.Author, &article.Approved); err != nil {
 			return nil, err
 		}
 		articles = append(articles, article)

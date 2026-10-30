@@ -56,5 +56,39 @@ func Init(logger *slog.Logger, driver string, source string, initFile string) (*
 		return nil, err
 	}
 
+	if err := migrateArticleApproval(db); err != nil {
+		return nil, fmt.Errorf("Init: migrate article approval: %w", err)
+	}
+
 	return db, nil
+}
+
+func migrateArticleApproval(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(articles)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			cid          int
+			name         string
+			columnType   string
+			notNull      int
+			defaultValue sql.NullString
+			primaryKey   int
+		)
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return err
+		}
+		if name == "approved" {
+			return rows.Err()
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = db.Exec(`ALTER TABLE articles ADD COLUMN approved BOOLEAN NOT NULL DEFAULT 1`)
+	return err
 }

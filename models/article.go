@@ -9,6 +9,7 @@ type Article struct {
 	Excerpt   string
 	Author    string
 	CreatedAt string
+	Approved  bool
 }
 
 // Comment 对应 tables.sql 中的 comments 表。

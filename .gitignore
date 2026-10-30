@@ -1,4 +1,5 @@
 blog.db
+blog.log
 go-sqlite-blog
 tmp
 
