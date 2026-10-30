@@ -1,0 +1,7 @@
+.git
+.github
+tmp
+blog.db
+blog.log
+go-sqlite-blog
+static/uploads/*

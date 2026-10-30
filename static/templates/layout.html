@@ -4,14 +4,84 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{if .Title}}{{.Title}} · {{end}}Go-SQLite-Blog</title>
+    <script>
+        (function () {
+            var preference = localStorage.getItem('theme');
+            var systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            var theme = preference === 'dark' || preference === 'light' ? preference : systemTheme;
+            document.documentElement.dataset.theme = theme;
+        })();
+    </script>
     <style>
         :root {
+            color-scheme: light;
             --accent: #2563eb;
-            --accent-dark: #1d4ed8;
+            --primary-bg: #2563eb;
+            --primary-hover: #1d4ed8;
             --text: #1f2937;
             --muted: #6b7280;
             --border: #e5e7eb;
             --bg: #f9fafb;
+            --surface: #fff;
+            --code-bg: #f3f4f6;
+            --pre-bg: #f6f8fa;
+            --table-head-bg: #f9fafb;
+            --focus-ring: rgba(37, 99, 235, 0.12);
+            --role-admin-bg: #eef2ff;
+            --role-admin-text: #3730a3;
+            --role-admin-border: #c7d2fe;
+            --role-editor-bg: #ecfdf5;
+            --role-editor-text: #065f46;
+            --role-editor-border: #a7f3d0;
+            --role-author-bg: #f3f4f6;
+            --role-author-text: #374151;
+            --role-author-border: #e5e7eb;
+            --alert-error-bg: #fef2f2;
+            --alert-error-text: #b91c1c;
+            --alert-error-border: #fecaca;
+            --alert-success-bg: #f0fdf4;
+            --alert-success-text: #15803d;
+            --alert-success-border: #bbf7d0;
+            --badge-bg: #fef3c7;
+            --badge-text: #92400e;
+            --broken-image-bg: #fef2f2;
+            --broken-image-border: #fca5a5;
+            --broken-image-text: #b91c1c;
+        }
+        :root[data-theme="dark"] {
+            color-scheme: dark;
+            --accent: #93c5fd;
+            --primary-bg: #2563eb;
+            --primary-hover: #1d4ed8;
+            --text: #e5e7eb;
+            --muted: #9ca3af;
+            --border: #374151;
+            --bg: #111827;
+            --surface: #1f2937;
+            --code-bg: #374151;
+            --pre-bg: #1b2533;
+            --table-head-bg: #273449;
+            --focus-ring: rgba(147, 197, 253, 0.2);
+            --role-admin-bg: #312e81;
+            --role-admin-text: #c7d2fe;
+            --role-admin-border: #4f46e5;
+            --role-editor-bg: #064e3b;
+            --role-editor-text: #a7f3d0;
+            --role-editor-border: #047857;
+            --role-author-bg: #374151;
+            --role-author-text: #d1d5db;
+            --role-author-border: #4b5563;
+            --alert-error-bg: #450a0a;
+            --alert-error-text: #fecaca;
+            --alert-error-border: #991b1b;
+            --alert-success-bg: #052e16;
+            --alert-success-text: #bbf7d0;
+            --alert-success-border: #166534;
+            --badge-bg: #78350f;
+            --badge-text: #fde68a;
+            --broken-image-bg: #450a0a;
+            --broken-image-border: #b91c1c;
+            --broken-image-text: #fecaca;
         }
         * { box-sizing: border-box; }
         body {
@@ -29,7 +99,7 @@
         a:hover { text-decoration: underline; }
 
         .site-header {
-            background: #fff;
+            background: var(--surface);
             border-bottom: 1px solid var(--border);
             position: sticky;
             top: 0;
@@ -61,9 +131,9 @@
             border-radius: 999px;
             border: 1px solid transparent;
         }
-        .role-admin { background: #eef2ff; color: #3730a3; border-color: #c7d2fe; }
-        .role-editor { background: #ecfdf5; color: #065f46; border-color: #a7f3d0; }
-        .role-author { background: #f3f4f6; color: #374151; border-color: #e5e7eb; }
+        .role-admin { background: var(--role-admin-bg); color: var(--role-admin-text); border-color: var(--role-admin-border); }
+        .role-editor { background: var(--role-editor-bg); color: var(--role-editor-text); border-color: var(--role-editor-border); }
+        .role-author { background: var(--role-author-bg); color: var(--role-author-text); border-color: var(--role-author-border); }
         .role-big { font-size: 0.85rem; padding: 0.1rem 0.6rem; }
         nav form.inline { margin: 0; }
         nav button.link {
@@ -75,6 +145,17 @@
             cursor: pointer;
         }
         nav button.link:hover { text-decoration: underline; }
+        nav button.theme-toggle {
+            padding: 0.3rem 0.55rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--surface);
+            color: var(--text);
+            font: inherit;
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+        nav button.theme-toggle:hover { border-color: var(--accent); }
 
         .container {
             flex: 1;
@@ -88,7 +169,7 @@
         h2 { font-size: 1.2rem; margin: 0 0 0.5rem; }
 
         .card {
-            background: #fff;
+            background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 12px;
             padding: 1.5rem;
@@ -97,7 +178,7 @@
         .card + .card { margin-top: 1rem; }
 
         .auth-card {
-            background: #fff;
+            background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 12px;
             padding: 2rem;
@@ -117,13 +198,13 @@
             border-radius: 8px;
             font: inherit;
             font-size: 0.95rem;
-            background: #fff;
+            background: var(--surface);
             color: var(--text);
         }
         input:focus, textarea:focus {
             outline: none;
             border-color: var(--accent);
-            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+            box-shadow: 0 0 0 3px var(--focus-ring);
         }
         textarea { resize: vertical; min-height: 260px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
@@ -136,12 +217,12 @@
             font-size: 0.95rem;
             font-weight: 600;
             cursor: pointer;
-            background: #fff;
+            background: var(--surface);
             color: var(--text);
             border-color: var(--border);
         }
-        .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); width: 100%; }
-        .btn.primary:hover { background: var(--accent-dark); }
+        .btn.primary { background: var(--primary-bg); color: #fff; border-color: var(--primary-bg); width: 100%; }
+        .btn.primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
         .btn.small { padding: 0.3rem 0.7rem; font-size: 0.85rem; font-weight: 500; }
         .btn-row { margin-top: 1.25rem; display: flex; gap: 0.6rem; align-items: center; }
         .actions { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.6rem; }
@@ -153,8 +234,8 @@
             font-size: 0.9rem;
             margin: 0 0 1rem;
         }
-        .alert.error { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
-        .alert.success { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
+        .alert.error { background: var(--alert-error-bg); color: var(--alert-error-text); border: 1px solid var(--alert-error-border); }
+        .alert.success { background: var(--alert-success-bg); color: var(--alert-success-text); border: 1px solid var(--alert-success-border); }
 
         .article-item { padding: 1.15rem 1.25rem; }
         .article-item + .article-item { border-top: 1px solid var(--border); }
@@ -194,14 +275,14 @@
             color: var(--muted);
         }
         .markdown code {
-            background: #f3f4f6;
+            background: var(--code-bg);
             padding: 0.1em 0.35em;
             border-radius: 4px;
             font-size: 0.9em;
             font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
         }
         .markdown pre {
-            background: #f6f8fa;
+            background: var(--pre-bg);
             border: 1px solid var(--border);
             padding: 0.9rem 1rem;
             border-radius: 8px;
@@ -209,6 +290,8 @@
             margin: 1em 0;
         }
         .markdown pre code { background: none; padding: 0; font-size: 0.88rem; }
+        .markdown .mermaid { margin: 1em 0; overflow-x: auto; text-align: center; }
+        .markdown .mermaid svg { max-width: 100%; }
         .markdown table {
             border-collapse: collapse;
             width: 100%;
@@ -222,7 +305,7 @@
             padding: 0.45rem 0.7rem;
             text-align: left;
         }
-        .markdown th { background: #f9fafb; font-weight: 600; }
+        .markdown th { background: var(--table-head-bg); font-weight: 600; }
         .markdown img { max-width: 100%; height: auto; border-radius: 8px; }
         /* 图片加载失败（例如正文里写的是本地相对路径 / 文件没上传）时给出明确提示 */
         .markdown img.img-broken {
@@ -230,9 +313,9 @@
             min-width: 160px;
             min-height: 64px;
             padding: 1rem;
-            border: 1px dashed #fca5a5;
-            background: #fef2f2;
-            color: #b91c1c;
+            border: 1px dashed var(--broken-image-border);
+            background: var(--broken-image-bg);
+            color: var(--broken-image-text);
             font-size: 0.85rem;
             border-radius: 8px;
         }
@@ -244,8 +327,8 @@
             font-size: 0.75rem;
             padding: 0.05rem 0.45rem;
             border-radius: 999px;
-            background: #fef3c7;
-            color: #92400e;
+            background: var(--badge-bg);
+            color: var(--badge-text);
             vertical-align: middle;
             margin-left: 0.4rem;
         }
@@ -253,7 +336,7 @@
 
         .site-footer {
             border-top: 1px solid var(--border);
-            background: #fff;
+            background: var(--surface);
             color: var(--muted);
             font-size: 0.85rem;
             text-align: center;
@@ -267,6 +350,7 @@
         <div class="inner">
             <a class="brand" href="/">Go-SQLite-Blog</a>
             <nav>
+                <button class="theme-toggle" type="button" id="theme-toggle" aria-label="切换深色模式" aria-pressed="false">深色模式</button>
                 <a href="/">首页</a>
                 <a href="/post/new">发文章</a>
                 {{if .IsAdmin}}<a href="/admin">管理</a>{{end}}
@@ -290,6 +374,27 @@
     <footer class="site-footer">
         <p>Powered by Go · net/http · SQLite</p>
     </footer>
+    <script>
+        (function () {
+            var button = document.getElementById('theme-toggle');
+            if (!button) return;
+
+            function updateButton() {
+                var isDark = document.documentElement.dataset.theme === 'dark';
+                button.textContent = isDark ? '浅色模式' : '深色模式';
+                button.setAttribute('aria-pressed', String(isDark));
+            }
+
+            updateButton();
+            button.addEventListener('click', function () {
+                var isDark = document.documentElement.dataset.theme !== 'dark';
+                var theme = isDark ? 'dark' : 'light';
+                document.documentElement.dataset.theme = theme;
+                updateButton();
+                localStorage.setItem('theme', theme);
+            });
+        })();
+    </script>
     <script>
     // 图片加载失败时加一个标记类，配合 CSS 显示出「图片未找到」的可见提示，
     // 而不是只留一个看不出原因的破图图标。

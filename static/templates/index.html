@@ -5,6 +5,7 @@
     {{range .Articles}}
     <article class="article-item">
         <h2><a href="/post/{{.ID}}">{{.Title}}</a></h2>
+        {{if not .Approved}}<p class="meta"><span class="badge">待审核（仅自己可见）</span></p>{{end}}
         {{if .Excerpt}}<p class="excerpt">{{.Excerpt}}</p>{{end}}
         <p class="meta">{{if .Author}}作者：{{.Author}} · {{end}}{{.CreatedAt}}</p>
     </article>
