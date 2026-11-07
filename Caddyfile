@@ -1,0 +1,3 @@
+{$DOMAIN} {
+    reverse_proxy blog:8080
+}

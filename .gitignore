@@ -2,6 +2,8 @@ blog.db
 blog.log
 go-sqlite-blog
 tmp
+.env
+backup-output/
 
 # 用户上传的图片不入库（目录本身保留）
 static/uploads/*

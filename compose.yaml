@@ -2,8 +2,6 @@ services:
   blog:
     image: ghcr.io/bie33333/go-sqlite-blog:latest
     restart: unless-stopped
-    ports:
-      - "${BLOG_PORT:-8080}:8080"
     environment:
       PORT: "8080"
       LOG_LEVEL: INFO
@@ -12,6 +10,34 @@ services:
       - blog-data:/data
       - blog-uploads:/app/static/uploads
 
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - blog
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+  article-backup:
+    image: python:3.13-alpine
+    profiles: ["backup"]
+    entrypoint: ["python3", "/opt/backup_articles.py"]
+    volumes:
+      - blog-data:/data
+      - blog-uploads:/uploads:ro
+      - ./scripts/backup_articles.py:/opt/backup_articles.py:ro
+      - ./backup-output:/output
+
 volumes:
   blog-data:
   blog-uploads:
+  caddy-data:
+  caddy-config:
