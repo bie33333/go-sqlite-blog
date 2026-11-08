@@ -22,10 +22,11 @@ const (
 
 // Session 是登录后保存在 cookie 中的用户信息。
 type Session struct {
-	UserID   int64  `json:"user_id"`
-	Username string `json:"username"`
-	RoleID   int64  `json:"role_id"`
-	Expires  int64  `json:"exp"`
+	UserID    int64  `json:"user_id"`
+	Username  string `json:"username"`
+	RoleID    int64  `json:"role_id"`
+	CSRFToken string `json:"csrf_token,omitempty"`
+	Expires   int64  `json:"exp"`
 }
 
 var sessionKey = loadSessionKey()
@@ -70,6 +71,15 @@ func SetSession(w http.ResponseWriter, session Session) error {
 		MaxAge:   int(sessionMaxAge.Seconds()),
 	})
 	return nil
+}
+
+// NewCSRFToken returns a cryptographically random token for forms bound to a session.
+func NewCSRFToken() (string, error) {
+	token := make([]byte, 32)
+	if _, err := rand.Read(token); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(token), nil
 }
 
 // GetSession 从请求中解析并校验 session。

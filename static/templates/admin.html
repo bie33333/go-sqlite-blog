@@ -2,6 +2,51 @@
 <h1>管理后台</h1>
 
 <section class="card">
+    <div class="actions" style="justify-content:space-between;margin-top:0">
+        <h2>自定义页面（{{len .Pages}}）</h2>
+        <div class="actions" style="margin-top:0">
+            <a class="btn small" href="/admin/pages">全部页面</a>
+            <a class="btn small primary" href="/admin/pages/new" style="width:auto">新建页面</a>
+        </div>
+    </div>
+    {{if .Pages}}
+        {{range .Pages}}
+        <div class="article-item">
+            <p class="meta">
+                {{.Title}} · /p/{{.Slug}} · {{.CreatedAt}}
+                {{if eq .Status "published"}}<span class="badge">已发布</span>{{else}}<span class="badge">草稿</span>{{end}}
+            </p>
+            <div class="actions">
+                {{if eq .Status "published"}}
+                <a class="btn small" href="/p/{{.Slug}}" target="_blank" rel="noopener">查看</a>
+                {{else}}
+                <a class="btn small" href="/admin/pages/{{.ID}}/preview" target="_blank" rel="noopener">预览</a>
+                {{end}}
+                <a class="btn small" href="/admin/pages/{{.ID}}/edit">编辑</a>
+                {{if eq .Status "published"}}
+                <form method="POST" action="/admin/pages/{{.ID}}/unpublish">
+                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                    <button class="btn small" type="submit">撤回</button>
+                </form>
+                {{else}}
+                <form method="POST" action="/admin/pages/{{.ID}}/publish">
+                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                    <button class="btn small primary" type="submit" style="width:auto">发布</button>
+                </form>
+                {{end}}
+                <form method="POST" action="/admin/pages/{{.ID}}/delete" onsubmit="return confirm('确定删除这个页面？');">
+                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                    <button class="btn small" type="submit">删除</button>
+                </form>
+            </div>
+        </div>
+        {{end}}
+    {{else}}
+        <p class="excerpt">暂无自定义页面。</p>
+    {{end}}
+</section>
+
+<section class="card">
     <h2>评论管理</h2>
     {{if .AdminComments}}
         {{range .AdminComments}}

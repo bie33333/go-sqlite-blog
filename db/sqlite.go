@@ -59,6 +59,9 @@ func Init(logger *slog.Logger, driver string, source string, initFile string) (*
 	if err := migrateArticleApproval(db); err != nil {
 		return nil, fmt.Errorf("Init: migrate article approval: %w", err)
 	}
+	if err := migrateStaticPages(db); err != nil {
+		return nil, fmt.Errorf("Init: migrate static pages: %w", err)
+	}
 
 	return db, nil
 }
@@ -91,4 +94,41 @@ func migrateArticleApproval(db *sql.DB) error {
 	}
 	_, err = db.Exec(`ALTER TABLE articles ADD COLUMN approved BOOLEAN NOT NULL DEFAULT 1`)
 	return err
+}
+
+func migrateStaticPages(db *sql.DB) error {
+	columns := map[string]bool{}
+	rows, err := db.Query(`PRAGMA table_info(pages)`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			rows.Close()
+			return err
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+
+	if !columns["status"] {
+		if _, err := db.Exec(`ALTER TABLE pages ADD COLUMN status TEXT NOT NULL DEFAULT 'published'`); err != nil {
+			return err
+		}
+	}
+	if !columns["created_by"] {
+		if _, err := db.Exec(`ALTER TABLE pages ADD COLUMN created_by INTEGER REFERENCES users(id)`); err != nil {
+			return err
+		}
+	}
+	return nil
 }

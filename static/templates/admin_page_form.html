@@ -1,0 +1,35 @@
+{{define "content"}}
+<h1>{{if .PageEditing}}编辑自定义页面{{else}}新建自定义页面{{end}}</h1>
+<section class="card">
+    {{if .Error}}<div class="alert error">{{.Error}}</div>{{end}}
+    <p class="excerpt">HTML 将作为独立文档呈现，保留页面自己的样式；页面脚本会被浏览器安全策略禁用。保存后先成为草稿，可预览后发布。</p>
+    {{if .PageEditing}}
+    <p class="meta">当前状态：{{if eq .Page.Status "published"}}已发布（保存后转为草稿）{{else}}草稿{{end}}</p>
+    {{end}}
+    <form method="POST" enctype="multipart/form-data" action="{{if .PageEditing}}/admin/pages/{{.Page.ID}}/edit{{else}}/admin/pages{{end}}">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <div class="form-group">
+            <label for="title">页面标题</label>
+            <input id="title" name="title" type="text" maxlength="200" required value="{{.FormTitle}}">
+        </div>
+        <div class="form-group">
+            <label for="slug">URL slug</label>
+            <input id="slug" name="slug" type="text" maxlength="80" pattern="[a-z0-9]+(-[a-z0-9]+)*" required value="{{.PageSlug}}">
+            <p class="meta">页面地址：/p/slug；仅允许小写英文字母、数字和连字符。</p>
+        </div>
+        <div class="form-group">
+            <label for="html_file">上传 HTML 文件（可选）</label>
+            <input id="html_file" name="html_file" type="file" accept=".html,.htm,text/html">
+            <p class="meta">选择文件时，文件内容将覆盖下方文本框。最大 1 MiB，必须为 UTF-8。</p>
+        </div>
+        <div class="form-group">
+            <label for="content">HTML 源码</label>
+            <textarea id="content" name="content" rows="24" spellcheck="false">{{.FormContent}}</textarea>
+        </div>
+        <div class="btn-row">
+            <button class="btn primary" type="submit" style="width:auto">保存为草稿</button>
+            <a class="btn" href="/admin/pages">取消</a>
+        </div>
+    </form>
+</section>
+{{end}}

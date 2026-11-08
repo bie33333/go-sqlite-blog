@@ -86,11 +86,16 @@ func AdminDashboard(a *middleware.Adapter) error {
 	if err != nil {
 		return fmt.Errorf("AdminDashboard: %w", err)
 	}
+	pages, err := listAdminPages(env)
+	if err != nil {
+		return fmt.Errorf("AdminDashboard: %w", err)
+	}
 
 	return renderPage(a, "admin.html", ViewData{
 		Title:         "管理后台",
 		AdminComments: comments,
 		Articles:      articles,
+		Pages:         pages,
 	})
 }
 

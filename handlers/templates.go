@@ -40,6 +40,11 @@ type ViewData struct {
 	// 表单回显
 	FormTitle   string
 	FormContent string
+	PageSlug    string
+	Page        models.Page
+	Pages       []models.Page
+	CSRFToken   string
+	PageEditing bool
 }
 
 // templateCache 缓存已解析的模板，避免每次请求都读盘。
@@ -71,6 +76,17 @@ func renderPage(a *middleware.Adapter, page string, data ViewData) error {
 	}
 
 	if session, ok := middleware.GetSession(a.Request); ok {
+		if session.CSRFToken == "" {
+			token, err := middleware.NewCSRFToken()
+			if err != nil {
+				return fmt.Errorf("renderPage: create CSRF token: %w", err)
+			}
+			session.CSRFToken = token
+			if err := middleware.SetSession(a.ResponseWriter, session); err != nil {
+				return fmt.Errorf("renderPage: update session with CSRF token: %w", err)
+			}
+		}
+		data.CSRFToken = session.CSRFToken
 		data.LoggedIn = true
 		data.Username = session.Username
 

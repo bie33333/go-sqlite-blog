@@ -1,0 +1,43 @@
+{{define "content"}}
+<h1>自定义页面</h1>
+<div class="actions">
+    <a class="btn small" href="/admin">返回管理后台</a>
+    <a class="btn small primary" href="/admin/pages/new" style="width:auto">新建页面</a>
+</div>
+
+<section class="card">
+    {{if .Pages}}
+        {{range .Pages}}
+        <div class="article-item">
+            <h2>{{.Title}}</h2>
+            <p class="meta">/p/{{.Slug}} · {{.CreatedAt}} · {{if eq .Status "published"}}已发布{{else}}草稿{{end}}</p>
+            <div class="actions">
+                {{if eq .Status "published"}}
+                <a class="btn small" href="/p/{{.Slug}}" target="_blank" rel="noopener">查看</a>
+                {{else}}
+                <a class="btn small" href="/admin/pages/{{.ID}}/preview" target="_blank" rel="noopener">预览</a>
+                {{end}}
+                <a class="btn small" href="/admin/pages/{{.ID}}/edit">编辑</a>
+                {{if eq .Status "published"}}
+                <form method="POST" action="/admin/pages/{{.ID}}/unpublish">
+                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                    <button class="btn small" type="submit">撤回</button>
+                </form>
+                {{else}}
+                <form method="POST" action="/admin/pages/{{.ID}}/publish">
+                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                    <button class="btn small primary" type="submit" style="width:auto">发布</button>
+                </form>
+                {{end}}
+                <form method="POST" action="/admin/pages/{{.ID}}/delete" onsubmit="return confirm('确定删除这个页面？');">
+                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                    <button class="btn small" type="submit">删除</button>
+                </form>
+            </div>
+        </div>
+        {{end}}
+    {{else}}
+        <p class="empty">还没有自定义页面。</p>
+    {{end}}
+</section>
+{{end}}

@@ -171,6 +171,12 @@ docker compose logs -f caddy
 
 `/uploads/` 只服务文件，**禁止目录列表**，并且 `/static/templates/` 不会对外暴露。
 
+### 管理员自定义 HTML 页面
+
+管理员可在 `/admin/pages` 新建自定义页面，直接粘贴完整 HTML 文档或上传 `.html` / `.htm` 文件（UTF-8，最大 1 MiB）。页面保存为草稿，可在隔离预览中检查后发布；页面 URL 为 `/p/{slug}`。编辑已发布页面会先撤回为草稿，需再次发布才会公开。
+
+页面按原始 HTML 文档返回，不套博客模板，因此可保留教程页面自带的 `<style>`、代码示例、表格和页内目录锚点。安全策略禁用页面 JavaScript、外部资源、表单及跳出页面的导航；允许内联 CSS，以支持自包含的教程样式。页面写操作要求管理员登录并通过 CSRF token 校验。
+
 ### 已实现路由
 
 | 方法 | 路径 | 说明 | 权限 |
@@ -192,6 +198,16 @@ docker compose logs -f caddy
 | POST | `/uploads` | 上传文章图片，JSON 返回 `url` / `markdown` | 登录 |
 | GET | `/uploads/{file}` | 访问上传的图片（`static/uploads/`，不列目录） | 公开 |
 | GET | `/admin` | 管理后台：评论审核 + 文章管理 | admin |
+| GET | `/admin/pages` | 自定义页面管理列表 | admin |
+| GET | `/admin/pages/new` | 新建 HTML 页面 | admin |
+| POST | `/admin/pages` | 保存为草稿（粘贴 HTML 或上传文件） | admin + CSRF |
+| GET | `/admin/pages/{id}/edit` | 编辑 HTML 页面 | admin |
+| POST | `/admin/pages/{id}/edit` | 保存修改并转为草稿 | admin + CSRF |
+| GET | `/admin/pages/{id}/preview` | 隔离预览草稿 | admin |
+| POST | `/admin/pages/{id}/publish` | 发布页面 | admin + CSRF |
+| POST | `/admin/pages/{id}/unpublish` | 撤回页面 | admin + CSRF |
+| POST | `/admin/pages/{id}/delete` | 删除页面 | admin + CSRF |
+| GET | `/p/{slug}` | 查看已发布 HTML 页面 | 公开 |
 | POST | `/admin/comments/{id}/approve` | 通过评论审核（`approved` 置 1） | admin |
 | POST | `/admin/articles/{id}/approve` | 审核并发布文章 | admin |
 | POST | `/admin/comments/{id}/delete` | 删除评论 | admin |

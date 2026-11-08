@@ -84,8 +84,11 @@ CREATE TABLE IF NOT EXISTS pages (
     title TEXT NOT NULL,
     slug TEXT NOT NULL UNIQUE,
     content TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'published',
+    created_by INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP
+    updated_at TIMESTAMP,
+    FOREIGN KEY(created_by) REFERENCES users(id)
 );
 
 -- roles and permission

@@ -35,3 +35,42 @@ func TestMigrateArticleApprovalPreservesExistingArticles(t *testing.T) {
 		t.Fatal("existing articles should remain published after migration")
 	}
 }
+
+func TestMigrateStaticPagesPreservesExistingPagesAndIsIdempotent(t *testing.T) {
+	testDB, err := ConnectDB("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testDB.Close()
+
+	if _, err := testDB.Exec(`
+		CREATE TABLE pages (
+			id INTEGER PRIMARY KEY,
+			title TEXT NOT NULL,
+			slug TEXT NOT NULL UNIQUE,
+			content TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP
+		);
+		INSERT INTO pages (title, slug, content) VALUES ('Tutorial', 'tutorial', '<h1>Hi</h1>');
+		CREATE TABLE users (id INTEGER PRIMARY KEY);
+	`); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := migrateStaticPages(testDB); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateStaticPages(testDB); err != nil {
+		t.Fatalf("migration is not idempotent: %v", err)
+	}
+
+	var title, slug, content, status string
+	if err := testDB.QueryRow(`SELECT title, slug, content, status FROM pages WHERE id = 1`).
+		Scan(&title, &slug, &content, &status); err != nil {
+		t.Fatal(err)
+	}
+	if title != "Tutorial" || slug != "tutorial" || content != "<h1>Hi</h1>" || status != "published" {
+		t.Fatalf("existing page changed unexpectedly: %q, %q, %q, %q", title, slug, content, status)
+	}
+}

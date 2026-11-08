@@ -132,10 +132,21 @@ func setupRouter(adapter *middleware.Adapter) *http.ServeMux {
 
 	// 管理后台（handler 内部校验 admin 角色，非管理员返回 403 页面）
 	mux.Handle("GET /admin", adapter.HTTPToContextHandler(handlers.AdminDashboard))
+	mux.Handle("GET /admin/pages", adapter.HTTPToContextHandler(handlers.ShowAdminPages))
+	mux.Handle("GET /admin/pages/new", adapter.HTTPToContextHandler(handlers.ShowNewAdminPage))
+	mux.Handle("POST /admin/pages", adapter.HTTPToContextHandler(handlers.CreateAdminPage))
+	mux.Handle("GET /admin/pages/{id}/edit", adapter.HTTPToContextHandler(handlers.ShowEditAdminPage))
+	mux.Handle("POST /admin/pages/{id}/edit", adapter.HTTPToContextHandler(handlers.UpdateAdminPage))
+	mux.Handle("GET /admin/pages/{id}/preview", adapter.HTTPToContextHandler(handlers.PreviewAdminPage))
+	mux.Handle("POST /admin/pages/{id}/publish", adapter.HTTPToContextHandler(handlers.PublishAdminPage))
+	mux.Handle("POST /admin/pages/{id}/unpublish", adapter.HTTPToContextHandler(handlers.UnpublishAdminPage))
+	mux.Handle("POST /admin/pages/{id}/delete", adapter.HTTPToContextHandler(handlers.DeleteAdminPage))
 	mux.Handle("POST /admin/comments/{id}/approve", adapter.HTTPToContextHandler(handlers.ApproveComment))
 	mux.Handle("POST /admin/comments/{id}/delete", adapter.HTTPToContextHandler(handlers.DeleteComment))
 	mux.Handle("POST /admin/articles/{id}/approve", adapter.HTTPToContextHandler(handlers.ApproveArticle))
 	mux.Handle("POST /admin/articles/{id}/delete", adapter.HTTPToContextHandler(handlers.DeleteArticle))
+
+	mux.Handle("GET /p/{slug}", adapter.HTTPToContextHandler(handlers.ShowStaticPage))
 
 	// 注意：Go 1.22+ ServeMux 中 "GET /" 会兜底所有未匹配的 GET 路径，
 	// ListArticles 内部会对非 "/" 路径返回 404。
