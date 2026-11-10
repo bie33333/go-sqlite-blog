@@ -1,12 +1,10 @@
 package handlers
 
 import (
-	"bytes"
 	"crypto/subtle"
 	"database/sql"
 	"errors"
 	"fmt"
-	htmltemplate "html/template"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -25,29 +23,6 @@ const (
 )
 
 var pageSlugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
-var pageBodyOpenPattern = regexp.MustCompile(`(?i)<body\b[^>]*>`)
-var pageBodyClosePattern = regexp.MustCompile(`(?i)</body\s*>`)
-
-var pageNavigationTemplate = htmltemplate.Must(htmltemplate.New("page-navigation").Parse(`
-<style>
-  #blog-site-navigation { position:relative; z-index:9999; padding:10px 16px; background:#111827; color:#f9fafb;
-    font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; display:flex; flex-wrap:wrap; gap:14px; align-items:center; }
-  #blog-site-navigation a { color:#bfdbfe; text-decoration:none; }
-  #blog-site-navigation a:hover { text-decoration:underline; }
-  #blog-site-navigation .blog-nav-menu { display:flex; flex-wrap:wrap; gap:12px; }
-  #blog-site-navigation .blog-breadcrumb { width:100%; color:#d1d5db; font-size:12px; }
-</style>
-<header id="blog-site-navigation">
-  <nav class="blog-nav-menu" aria-label="站点导航">
-    <a href="/">Go-SQLite-Blog</a>
-    <a href="/">首页</a>
-    {{range .Tags}}<a href="/?tag={{.ID}}">{{.Name}}</a>{{end}}
-    {{range .Pages}}<a href="/p/{{.Slug}}">{{.Title}}</a>{{end}}
-  </nav>
-  <div class="blog-breadcrumb" aria-label="面包屑">
-    <a href="/">首页</a> / <span>{{.Title}}</span>
-  </div>
-</header>`))
 
 func listAdminPages(env *models.Env) ([]models.Page, error) {
 	rows, err := env.DB.QueryContext(env.Ctx, `
@@ -259,11 +234,7 @@ func ShowStaticPage(a *middleware.Adapter) error {
 		}
 		return fmt.Errorf("ShowStaticPage: %w", err)
 	}
-	tags, pages, err := loadNavigation(env)
-	if err != nil {
-		return fmt.Errorf("ShowStaticPage: load navigation: %w", err)
-	}
-	return writeIsolatedHTML(a.ResponseWriter, page, tags, pages)
+	return writeIsolatedHTML(a.ResponseWriter, page)
 }
 
 func PreviewAdminPage(a *middleware.Adapter) error {
@@ -277,58 +248,27 @@ func PreviewAdminPage(a *middleware.Adapter) error {
 	if !found {
 		return nil
 	}
-	tags, pages, err := loadNavigation(models.EnvFromAdapter(a))
-	if err != nil {
-		return fmt.Errorf("PreviewAdminPage: load navigation: %w", err)
-	}
-	return writeIsolatedHTML(a.ResponseWriter, page, tags, pages)
+	return writeIsolatedHTML(a.ResponseWriter, page)
 }
 
-func writeIsolatedHTML(w http.ResponseWriter, page models.Page, tags []models.Tag, pages []models.Page) error {
+func writeIsolatedHTML(w http.ResponseWriter, page models.Page) error {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Cache-Control", "no-store")
 	scriptPolicy := "script-src 'none'; sandbox"
 	if page.AllowScripts {
-		scriptPolicy = "script-src 'unsafe-inline' https:; sandbox allow-scripts"
+		scriptPolicy = "script-src 'unsafe-inline' https:; worker-src blob:"
 	}
 	w.Header().Set("Content-Security-Policy",
 		"default-src 'none'; "+scriptPolicy+
 			"; style-src 'unsafe-inline' https:; img-src data: https:; font-src data: https:;"+
-			" connect-src https:; frame-src https:; media-src https:; base-uri 'none';"+
+			" connect-src https: wss:; frame-src https:; media-src https:; base-uri 'none';"+
 			" form-action 'none'; frame-ancestors 'self'")
-	content, err := injectPageNavigation(page.Content, page.Title, tags, pages)
-	if err != nil {
-		return fmt.Errorf("writeIsolatedHTML: build navigation: %w", err)
-	}
-	if _, err := io.WriteString(w, content); err != nil {
+	if _, err := io.WriteString(w, page.Content); err != nil {
 		return fmt.Errorf("writeIsolatedHTML: write response: %w", err)
 	}
 	return nil
-}
-
-func injectPageNavigation(content, title string, tags []models.Tag, pages []models.Page) (string, error) {
-	var navigation bytes.Buffer
-	if err := pageNavigationTemplate.Execute(&navigation, struct {
-		Title string
-		Tags  []models.Tag
-		Pages []models.Page
-	}{Title: title, Tags: tags, Pages: pages}); err != nil {
-		return "", err
-	}
-
-	if body := pageBodyOpenPattern.FindStringIndex(content); body != nil {
-		return content[:body[1]] + navigation.String() + content[body[1]:], nil
-	}
-	if body := pageBodyClosePattern.FindStringIndex(content); body != nil {
-		return content[:body[0]] + navigation.String() + content[body[0]:], nil
-	}
-	if strings.Contains(strings.ToLower(content), "<html") {
-		return content + navigation.String(), nil
-	}
-	return "<!doctype html><html><head><meta charset=\"utf-8\"></head><body>" +
-		navigation.String() + content + "</body></html>", nil
 }
 
 func readPageInput(a *middleware.Adapter) (title, slug, content string, allowScripts bool, message string, err error) {

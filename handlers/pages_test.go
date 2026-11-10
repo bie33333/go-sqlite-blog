@@ -8,9 +8,9 @@ import (
 	"github.com/AndreHeber/go-sqlite-blog/models"
 )
 
-func TestWriteIsolatedHTMLScriptPermissionsAndNavigation(t *testing.T) {
+func TestWriteHTMLScriptPermissionsWithoutNavigation(t *testing.T) {
 	for _, allowScripts := range []bool{false, true} {
-		t.Run(map[bool]string{false: "scripts disabled by default", true: "scripts enabled in sandbox"}[allowScripts], func(t *testing.T) {
+		t.Run(map[bool]string{false: "scripts disabled by default", true: "scripts enabled with same-origin access"}[allowScripts], func(t *testing.T) {
 			response := httptest.NewRecorder()
 			page := models.Page{
 				Title:        `<Page>`,
@@ -18,29 +18,27 @@ func TestWriteIsolatedHTMLScriptPermissionsAndNavigation(t *testing.T) {
 				Content:      `<!doctype html><html><body><script>window.demo = true;</script><main>Content</main></body></html>`,
 				AllowScripts: allowScripts,
 			}
-			tags := []models.Tag{{ID: 7, Name: "Solana"}}
-			if err := writeIsolatedHTML(response, page, tags, nil); err != nil {
+			if err := writeIsolatedHTML(response, page); err != nil {
 				t.Fatal(err)
 			}
 
 			policy := response.Header().Get("Content-Security-Policy")
-			if !strings.Contains(policy, "sandbox") {
-				t.Fatal("response CSP must isolate custom HTML")
-			}
 			if allowScripts {
-				if !strings.Contains(policy, "sandbox allow-scripts") || strings.Contains(policy, "allow-same-origin") {
-					t.Fatalf("unexpected script-enabled policy: %s", policy)
+				if strings.Contains(policy, "sandbox") ||
+					!strings.Contains(policy, "script-src 'unsafe-inline' https:") ||
+					!strings.Contains(policy, "connect-src https: wss:") {
+					t.Fatalf("script-enabled page should have same-origin access and websocket connectivity: %s", policy)
 				}
-			} else if !strings.Contains(policy, "script-src 'none'") || strings.Contains(policy, "allow-scripts") {
+			} else if !strings.Contains(policy, "script-src 'none'; sandbox") || strings.Contains(policy, "allow-scripts") {
 				t.Fatalf("scripts should remain disabled: %s", policy)
 			}
 
 			body := response.Body.String()
-			if !strings.Contains(body, `href="/?tag=7"`) ||
-				!strings.Contains(body, `&lt;Page&gt;`) ||
+			if strings.Contains(body, "blog-site-navigation") ||
+				strings.Contains(body, `href="/?tag=7"`) ||
 				!strings.Contains(body, `<main>Content</main>`) ||
 				!strings.Contains(body, `<script>window.demo = true;</script>`) {
-				t.Fatalf("navigation or original HTML missing/unsafe: %s", body)
+				t.Fatalf("unexpected navigation or missing original HTML: %s", body)
 			}
 		})
 	}

@@ -112,14 +112,13 @@ func TestCustomHTMLPageLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	if response.StatusCode != http.StatusOK || !strings.Contains(string(preview), `<h1>教程</h1>`) ||
-		!strings.Contains(string(preview), `id="blog-site-navigation"`) {
+		strings.Contains(string(preview), `id="blog-site-navigation"`) {
 		t.Fatalf("preview did not return the original HTML: status=%d body=%q", response.StatusCode, preview)
 	}
-	if !strings.Contains(response.Header.Get("Content-Security-Policy"), "sandbox") ||
+	if strings.Contains(response.Header.Get("Content-Security-Policy"), "sandbox") ||
 		!strings.Contains(response.Header.Get("Content-Security-Policy"), "style-src 'unsafe-inline'") ||
-		!strings.Contains(response.Header.Get("Content-Security-Policy"), "sandbox allow-scripts") ||
-		strings.Contains(response.Header.Get("Content-Security-Policy"), "allow-same-origin") {
-		t.Fatalf("expected isolated document CSP, got %q", response.Header.Get("Content-Security-Policy"))
+		!strings.Contains(response.Header.Get("Content-Security-Policy"), "connect-src https: wss:") {
+		t.Fatalf("expected script-enabled document CSP with websocket access, got %q", response.Header.Get("Content-Security-Policy"))
 	}
 
 	request, err = http.NewRequest(http.MethodGet, server.URL+"/admin/pages/999/preview", nil)
@@ -162,7 +161,7 @@ func TestCustomHTMLPageLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	if response.StatusCode != http.StatusOK || !strings.Contains(string(published), `<h1>教程</h1>`) ||
-		!strings.Contains(string(published), `id="blog-site-navigation"`) {
+		strings.Contains(string(published), `id="blog-site-navigation"`) {
 		t.Fatalf("published page did not return original HTML: status=%d", response.StatusCode)
 	}
 	if response.Header.Get("Content-Type") != "text/html; charset=utf-8" {
