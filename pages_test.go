@@ -53,6 +53,7 @@ func TestCustomHTMLPageLifecycle(t *testing.T) {
 	writer := multipart.NewWriter(&body)
 	for key, value := range map[string]string{
 		"title": "教程", "slug": "tutorial", "csrf_token": csrfToken, "content": html,
+		"allow_scripts": "true",
 	} {
 		if err := writer.WriteField(key, value); err != nil {
 			t.Fatal(err)
@@ -110,11 +111,14 @@ func TestCustomHTMLPageLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.StatusCode != http.StatusOK || string(preview) != html {
+	if response.StatusCode != http.StatusOK || !strings.Contains(string(preview), `<h1>教程</h1>`) ||
+		!strings.Contains(string(preview), `id="blog-site-navigation"`) {
 		t.Fatalf("preview did not return the original HTML: status=%d body=%q", response.StatusCode, preview)
 	}
 	if !strings.Contains(response.Header.Get("Content-Security-Policy"), "sandbox") ||
-		!strings.Contains(response.Header.Get("Content-Security-Policy"), "style-src 'unsafe-inline'") {
+		!strings.Contains(response.Header.Get("Content-Security-Policy"), "style-src 'unsafe-inline'") ||
+		!strings.Contains(response.Header.Get("Content-Security-Policy"), "sandbox allow-scripts") ||
+		strings.Contains(response.Header.Get("Content-Security-Policy"), "allow-same-origin") {
 		t.Fatalf("expected isolated document CSP, got %q", response.Header.Get("Content-Security-Policy"))
 	}
 
@@ -157,7 +161,8 @@ func TestCustomHTMLPageLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.StatusCode != http.StatusOK || string(published) != html {
+	if response.StatusCode != http.StatusOK || !strings.Contains(string(published), `<h1>教程</h1>`) ||
+		!strings.Contains(string(published), `id="blog-site-navigation"`) {
 		t.Fatalf("published page did not return original HTML: status=%d", response.StatusCode)
 	}
 	if response.Header.Get("Content-Type") != "text/html; charset=utf-8" {

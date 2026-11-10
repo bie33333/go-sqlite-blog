@@ -10,7 +10,7 @@
         {{range .Pages}}
         <div class="article-item">
             <h2>{{.Title}}</h2>
-            <p class="meta">/p/{{.Slug}} · {{.CreatedAt}} · {{if eq .Status "published"}}已发布{{else}}草稿{{end}}</p>
+            <p class="meta">/p/{{.Slug}} · {{.CreatedAt}} · {{if eq .Status "published"}}已发布{{else}}草稿{{end}}{{if .AllowScripts}} · 允许脚本{{end}}</p>
             <div class="actions">
                 {{if eq .Status "published"}}
                 <a class="btn small" href="/p/{{.Slug}}" target="_blank" rel="noopener">查看</a>

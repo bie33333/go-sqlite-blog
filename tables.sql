@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS articles (
     title TEXT NOT NULL,
     content TEXT NOT NULL,
     approved BOOLEAN NOT NULL DEFAULT 1,
+    pinned BOOLEAN NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -85,6 +86,7 @@ CREATE TABLE IF NOT EXISTS pages (
     slug TEXT NOT NULL UNIQUE,
     content TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'published',
+    allow_scripts BOOLEAN NOT NULL DEFAULT 0,
     created_by INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP,

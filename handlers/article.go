@@ -17,39 +17,40 @@ import (
 const listArticlesQuery = `
 SELECT a.id, a.title, a.content,
        strftime('%Y-%m-%d %H:%M', a.created_at),
-       COALESCE(u.username, ''), a.approved
+       COALESCE(u.username, ''), a.approved, a.pinned
 FROM articles a
 LEFT JOIN article_revisions r
        ON r.id = (SELECT MIN(id) FROM article_revisions WHERE article_id = a.id)
 LEFT JOIN users u ON u.id = r.edited_by
-ORDER BY a.created_at DESC, a.id DESC`
+WHERE 1 = 1
+ORDER BY a.pinned DESC, a.created_at DESC, a.id DESC`
 
 const listPublishedArticlesQuery = `
 SELECT a.id, a.title, a.content,
        strftime('%Y-%m-%d %H:%M', a.created_at),
-       COALESCE(u.username, ''), a.approved
+       COALESCE(u.username, ''), a.approved, a.pinned
 FROM articles a
 LEFT JOIN article_revisions r
        ON r.id = (SELECT MIN(id) FROM article_revisions WHERE article_id = a.id)
 LEFT JOIN users u ON u.id = r.edited_by
 WHERE a.approved = 1
-ORDER BY a.created_at DESC, a.id DESC`
+ORDER BY a.pinned DESC, a.created_at DESC, a.id DESC`
 
 const listUserArticlesQuery = `
 SELECT a.id, a.title, a.content,
        strftime('%Y-%m-%d %H:%M', a.created_at),
-       COALESCE(u.username, ''), a.approved
+       COALESCE(u.username, ''), a.approved, a.pinned
 FROM articles a
 LEFT JOIN article_revisions r
        ON r.id = (SELECT MIN(id) FROM article_revisions WHERE article_id = a.id)
 LEFT JOIN users u ON u.id = r.edited_by
-WHERE a.approved = 1 OR r.edited_by = ?
-ORDER BY a.created_at DESC, a.id DESC`
+WHERE (a.approved = 1 OR r.edited_by = ?)
+ORDER BY a.pinned DESC, a.created_at DESC, a.id DESC`
 
 const getArticleQuery = `
 SELECT a.id, a.title, a.content,
        strftime('%Y-%m-%d %H:%M', a.created_at),
-       COALESCE(u.username, ''), a.approved
+       COALESCE(u.username, ''), a.approved, a.pinned
 FROM articles a
 LEFT JOIN article_revisions r
        ON r.id = (SELECT MIN(id) FROM article_revisions WHERE article_id = a.id)
@@ -78,9 +79,28 @@ func ListArticles(a *middleware.Adapter) error {
 	}
 
 	env := models.EnvFromAdapter(a)
-	query := listPublishedArticlesQuery
-	var rows *sql.Rows
-	var err error
+	var (
+		query = listPublishedArticlesQuery
+		tag   models.Tag
+		tagID int64
+		rows  *sql.Rows
+		args  []any
+		err   error
+	)
+	if rawTag := strings.TrimSpace(a.Request.URL.Query().Get("tag")); rawTag != "" {
+		tagID, err = strconv.ParseInt(rawTag, 10, 64)
+		if err != nil || tagID <= 0 {
+			return notFound(a, "标签不存在")
+		}
+		if err := env.DB.QueryRowContext(env.Ctx,
+			`SELECT id, name, slug FROM tags WHERE id = ?`, tagID).
+			Scan(&tag.ID, &tag.Name, &tag.Slug); err != nil {
+			if err == sql.ErrNoRows {
+				return notFound(a, "标签不存在")
+			}
+			return fmt.Errorf("ListArticles: load tag: %w", err)
+		}
+	}
 	if session, ok := currentSession(a.Request); ok {
 		roleID, err := currentRoleID(a)
 		if err != nil {
@@ -88,13 +108,16 @@ func ListArticles(a *middleware.Adapter) error {
 		}
 		if users.IsAdminRole(roleID) {
 			query = listArticlesQuery
-			rows, err = env.DB.QueryContext(env.Ctx, query)
 		} else {
-			rows, err = env.DB.QueryContext(env.Ctx, listUserArticlesQuery, session.UserID)
+			query = listUserArticlesQuery
+			args = append(args, session.UserID)
 		}
-	} else {
-		rows, err = env.DB.QueryContext(env.Ctx, query)
 	}
+	if tagID > 0 {
+		query = addTagFilter(query)
+		args = append(args, tagID)
+	}
+	rows, err = env.DB.QueryContext(env.Ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("ListArticles: %w", err)
 	}
@@ -103,7 +126,8 @@ func ListArticles(a *middleware.Adapter) error {
 	articles := make([]models.Article, 0)
 	for rows.Next() {
 		var article models.Article
-		if err := rows.Scan(&article.ID, &article.Title, &article.Content, &article.CreatedAt, &article.Author, &article.Approved); err != nil {
+		if err := rows.Scan(&article.ID, &article.Title, &article.Content, &article.CreatedAt,
+			&article.Author, &article.Approved, &article.Pinned); err != nil {
 			return fmt.Errorf("ListArticles: %w", err)
 		}
 		article.Excerpt = excerpt(article.Content, 160)
@@ -112,11 +136,34 @@ func ListArticles(a *middleware.Adapter) error {
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("ListArticles: %w", err)
 	}
+	if err := attachArticleTags(env, articles); err != nil {
+		return fmt.Errorf("ListArticles: %w", err)
+	}
 
 	return renderPage(a, "index.html", ViewData{
-		Title:    "首页",
-		Articles: articles,
+		Title:       "首页",
+		Articles:    articles,
+		SelectedTag: tag,
+		Breadcrumbs: articleListBreadcrumbs(tag),
 	})
+}
+
+func addTagFilter(query string) string {
+	orderBy := "\nORDER BY "
+	index := strings.Index(query, orderBy)
+	if index < 0 {
+		return query
+	}
+	return query[:index] +
+		"\nAND EXISTS (SELECT 1 FROM article_tags at WHERE at.article_id = a.id AND at.tag_id = ?)" +
+		query[index:]
+}
+
+func articleListBreadcrumbs(tag models.Tag) []models.Breadcrumb {
+	if tag.ID == 0 {
+		return []models.Breadcrumb{{Title: "首页", URL: "/"}}
+	}
+	return []models.Breadcrumb{{Title: "首页", URL: "/"}, {Title: "标签：" + tag.Name}}
 }
 
 // ShowArticle 渲染文章详情
@@ -163,7 +210,8 @@ func ShowArticle(a *middleware.Adapter) error {
 func getArticle(env *models.Env, id int64) (models.Article, error) {
 	var article models.Article
 	err := env.DB.QueryRowContext(env.Ctx, getArticleQuery, id).
-		Scan(&article.ID, &article.Title, &article.Content, &article.CreatedAt, &article.Author, &article.Approved)
+		Scan(&article.ID, &article.Title, &article.Content, &article.CreatedAt,
+			&article.Author, &article.Approved, &article.Pinned)
 	return article, err
 }
 
@@ -201,6 +249,12 @@ func listComments(env *models.Env, articleID int64, includePending bool) ([]mode
 // renderPostPage 渲染详情页（含 Markdown 正文、评论列表与提示信息）。
 // notice 为绿色提示，errMsg 为红色错误提示，两者互斥使用。
 func renderPostPage(a *middleware.Adapter, article models.Article, comments []models.Comment, notice, errMsg string) error {
+	articles := []models.Article{article}
+	if err := attachArticleTags(models.EnvFromAdapter(a), articles); err != nil {
+		return fmt.Errorf("renderPostPage: load tags: %w", err)
+	}
+	article = articles[0]
+
 	bodyHTML, err := renderMarkdown(article.Content)
 	if err != nil {
 		return fmt.Errorf("renderPostPage: %w", err)
@@ -216,6 +270,7 @@ func renderPostPage(a *middleware.Adapter, article models.Article, comments []mo
 		Article:        article,
 		ArticleHTML:    bodyHTML,
 		ArticleID:      article.ID,
+		Breadcrumbs:    []models.Breadcrumb{{Title: "首页", URL: "/"}, {Title: article.Title}},
 		Comments:       comments,
 		Message:        notice,
 		Error:          errMsg,
@@ -297,6 +352,11 @@ func ShowEditArticle(a *middleware.Adapter) error {
 	if err != nil {
 		return fmt.Errorf("ShowEditArticle: %w", err)
 	}
+	articles := []models.Article{article}
+	if err := attachArticleTags(env, articles); err != nil {
+		return fmt.Errorf("ShowEditArticle: load tags: %w", err)
+	}
+	article = articles[0]
 
 	allowed, err := requireArticleEditPermission(a, id)
 	if !allowed {
@@ -309,6 +369,7 @@ func ShowEditArticle(a *middleware.Adapter) error {
 		EditingArticle: true,
 		FormTitle:      article.Title,
 		FormContent:    article.Content,
+		FormTags:       tagNames(article.Tags),
 	})
 }
 
@@ -333,13 +394,15 @@ func CreateArticle(a *middleware.Adapter) error {
 
 	title := strings.TrimSpace(r.FormValue("title"))
 	content := strings.TrimSpace(r.FormValue("content"))
+	tags, tagError := parseArticleTags(r.FormValue("tags"))
 
-	if formError := validateArticle(title, content); formError != "" {
+	if formError := firstValidationError(validateArticle(title, content), tagError); formError != "" {
 		return renderPage(a, "editor.html", ViewData{
 			Title:       "写文章",
 			Error:       formError,
 			FormTitle:   title,
 			FormContent: content,
+			FormTags:    r.FormValue("tags"),
 		})
 	}
 
@@ -360,6 +423,9 @@ func CreateArticle(a *middleware.Adapter) error {
 	articleID, err := result.LastInsertId()
 	if err != nil {
 		return fmt.Errorf("CreateArticle: %w", err)
+	}
+	if err := replaceArticleTags(env.Ctx, tx, articleID, tags); err != nil {
+		return fmt.Errorf("CreateArticle: save tags: %w", err)
 	}
 
 	// articles 表没有作者字段，用 article_revisions 的初版记录保存作者
@@ -405,13 +471,15 @@ func UpdateArticle(a *middleware.Adapter) error {
 
 	title := strings.TrimSpace(r.FormValue("title"))
 	content := strings.TrimSpace(r.FormValue("content"))
-	if formError := validateArticle(title, content); formError != "" {
+	tags, tagError := parseArticleTags(r.FormValue("tags"))
+	if formError := firstValidationError(validateArticle(title, content), tagError); formError != "" {
 		return renderPage(a, "editor.html", ViewData{
 			Title:          "编辑文章",
 			ArticleID:      article.ID,
 			EditingArticle: true,
 			FormTitle:      title,
 			FormContent:    content,
+			FormTags:       r.FormValue("tags"),
 			Error:          formError,
 		})
 	}
@@ -449,6 +517,9 @@ func UpdateArticle(a *middleware.Adapter) error {
 		id, title, content, session.UserID); err != nil {
 		return fmt.Errorf("UpdateArticle: %w", err)
 	}
+	if err := replaceArticleTags(env.Ctx, tx, id, tags); err != nil {
+		return fmt.Errorf("UpdateArticle: save tags: %w", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("UpdateArticle: %w", err)
@@ -456,6 +527,13 @@ func UpdateArticle(a *middleware.Adapter) error {
 
 	http.Redirect(a.ResponseWriter, r, fmt.Sprintf("/post/%d", id), http.StatusSeeOther)
 	return nil
+}
+
+func firstValidationError(first, second string) string {
+	if first != "" {
+		return first
+	}
+	return second
 }
 
 func validateArticle(title, content string) string {

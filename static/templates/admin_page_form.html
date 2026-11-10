@@ -2,7 +2,7 @@
 <h1>{{if .PageEditing}}编辑自定义页面{{else}}新建自定义页面{{end}}</h1>
 <section class="card">
     {{if .Error}}<div class="alert error">{{.Error}}</div>{{end}}
-    <p class="excerpt">HTML 将作为独立文档呈现，保留页面自己的样式；页面脚本会被浏览器安全策略禁用。保存后先成为草稿，可预览后发布。</p>
+    <p class="excerpt">HTML 将作为独立文档并在隔离沙箱中呈现。仅为可信页面勾选脚本运行；沙箱不开放同源权限，钱包扩展可能无法使用。保存后先成为草稿，可预览后发布。</p>
     {{if .PageEditing}}
     <p class="meta">当前状态：{{if eq .Page.Status "published"}}已发布（保存后转为草稿）{{else}}草稿{{end}}</p>
     {{end}}
@@ -25,6 +25,10 @@
         <div class="form-group">
             <label for="content">HTML 源码</label>
             <textarea id="content" name="content" rows="24" spellcheck="false">{{.FormContent}}</textarea>
+        </div>
+        <div class="form-group">
+            <label><input type="checkbox" name="allow_scripts" value="true" {{if .PageAllowScripts}}checked{{end}}> 允许此页面运行 JavaScript</label>
+            <p class="meta">开启后仍保留浏览器 sandbox 隔离；不要在页面中放入秘密信息。</p>
         </div>
         <div class="btn-row">
             <button class="btn primary" type="submit" style="width:auto">保存为草稿</button>

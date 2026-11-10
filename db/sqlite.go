@@ -59,8 +59,14 @@ func Init(logger *slog.Logger, driver string, source string, initFile string) (*
 	if err := migrateArticleApproval(db); err != nil {
 		return nil, fmt.Errorf("Init: migrate article approval: %w", err)
 	}
+	if err := migrateArticlePinning(db); err != nil {
+		return nil, fmt.Errorf("Init: migrate article pinning: %w", err)
+	}
 	if err := migrateStaticPages(db); err != nil {
 		return nil, fmt.Errorf("Init: migrate static pages: %w", err)
+	}
+	if err := migrateStaticPageScripts(db); err != nil {
+		return nil, fmt.Errorf("Init: migrate static page scripts: %w", err)
 	}
 
 	return db, nil
@@ -94,6 +100,11 @@ func migrateArticleApproval(db *sql.DB) error {
 	}
 	_, err = db.Exec(`ALTER TABLE articles ADD COLUMN approved BOOLEAN NOT NULL DEFAULT 1`)
 	return err
+}
+
+func migrateArticlePinning(db *sql.DB) error {
+	return addColumnIfMissing(db, "articles", "pinned",
+		`ALTER TABLE articles ADD COLUMN pinned BOOLEAN NOT NULL DEFAULT 0`)
 }
 
 func migrateStaticPages(db *sql.DB) error {
@@ -131,4 +142,39 @@ func migrateStaticPages(db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+func migrateStaticPageScripts(db *sql.DB) error {
+	return addColumnIfMissing(db, "pages", "allow_scripts",
+		`ALTER TABLE pages ADD COLUMN allow_scripts BOOLEAN NOT NULL DEFAULT 0`)
+}
+
+func addColumnIfMissing(db *sql.DB, table, column, alterStatement string) error {
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			cid          int
+			name         string
+			columnType   string
+			notNull      int
+			defaultValue sql.NullString
+			primaryKey   int
+		)
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return err
+		}
+		if name == column {
+			return rows.Err()
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = db.Exec(alterStatement)
+	return err
 }

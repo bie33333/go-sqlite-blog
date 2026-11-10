@@ -8,6 +8,11 @@
             <input type="text" id="title" name="title" value="{{.FormTitle}}" maxlength="200" required autofocus>
         </div>
         <div class="form-group">
+            <label for="tags">标签</label>
+            <input type="text" id="tags" name="tags" value="{{.FormTags}}" maxlength="500" placeholder="Solana, DeFi, 教程">
+            <p class="meta">用英文逗号分隔，最多 10 个，每个不超过 40 个字符。</p>
+        </div>
+        <div class="form-group">
             <label for="content">正文（支持 Markdown）</label>
             <textarea id="content" name="content" required>{{.FormContent}}</textarea>
             <div class="actions" style="margin-top:0.6rem">
@@ -16,7 +21,7 @@
                 <span class="excerpt" id="image-status">支持 PNG / JPEG / GIF / WebP，最大 5 MB；也可以直接粘贴或拖入图片</span>
             </div>
             <p class="excerpt" style="margin:0.4rem 0 0">
-                支持 Markdown：# 标题、**粗体**、*斜体*、`代码`、- 列表、&gt; 引用、表格、链接、图片和 Mermaid 图表。
+                支持 Markdown：# 标题、**粗体**、*斜体*、`代码`、- 列表、&gt; 引用、表格、链接、图片、Mermaid、LaTeX 公式和代码高亮。
                 图片语法为 <code>![说明](/uploads/文件名)</code>，也可以直接贴外链地址，
                 或者从网页粘贴 <code>&lt;img src="..."&gt;</code>。
                 <br>

@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"bytes"
 	"crypto/subtle"
 	"database/sql"
 	"errors"
 	"fmt"
+	htmltemplate "html/template"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -23,10 +25,33 @@ const (
 )
 
 var pageSlugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+var pageBodyOpenPattern = regexp.MustCompile(`(?i)<body\b[^>]*>`)
+var pageBodyClosePattern = regexp.MustCompile(`(?i)</body\s*>`)
+
+var pageNavigationTemplate = htmltemplate.Must(htmltemplate.New("page-navigation").Parse(`
+<style>
+  #blog-site-navigation { position:relative; z-index:9999; padding:10px 16px; background:#111827; color:#f9fafb;
+    font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; display:flex; flex-wrap:wrap; gap:14px; align-items:center; }
+  #blog-site-navigation a { color:#bfdbfe; text-decoration:none; }
+  #blog-site-navigation a:hover { text-decoration:underline; }
+  #blog-site-navigation .blog-nav-menu { display:flex; flex-wrap:wrap; gap:12px; }
+  #blog-site-navigation .blog-breadcrumb { width:100%; color:#d1d5db; font-size:12px; }
+</style>
+<header id="blog-site-navigation">
+  <nav class="blog-nav-menu" aria-label="站点导航">
+    <a href="/">Go-SQLite-Blog</a>
+    <a href="/">首页</a>
+    {{range .Tags}}<a href="/?tag={{.ID}}">{{.Name}}</a>{{end}}
+    {{range .Pages}}<a href="/p/{{.Slug}}">{{.Title}}</a>{{end}}
+  </nav>
+  <div class="blog-breadcrumb" aria-label="面包屑">
+    <a href="/">首页</a> / <span>{{.Title}}</span>
+  </div>
+</header>`))
 
 func listAdminPages(env *models.Env) ([]models.Page, error) {
 	rows, err := env.DB.QueryContext(env.Ctx, `
-		SELECT id, title, slug, status,
+		SELECT id, title, slug, status, allow_scripts,
 		       strftime('%Y-%m-%d %H:%M', created_at),
 		       COALESCE(strftime('%Y-%m-%d %H:%M', updated_at), '')
 		FROM pages
@@ -39,7 +64,8 @@ func listAdminPages(env *models.Env) ([]models.Page, error) {
 	pages := make([]models.Page, 0)
 	for rows.Next() {
 		var page models.Page
-		if err := rows.Scan(&page.ID, &page.Title, &page.Slug, &page.Status, &page.CreatedAt, &page.UpdatedAt); err != nil {
+		if err := rows.Scan(&page.ID, &page.Title, &page.Slug, &page.Status,
+			&page.AllowScripts, &page.CreatedAt, &page.UpdatedAt); err != nil {
 			return nil, err
 		}
 		pages = append(pages, page)
@@ -83,14 +109,15 @@ func CreateAdminPage(a *middleware.Adapter) error {
 	if ok, err := requireAdmin(a); !ok {
 		return err
 	}
-	title, slug, content, message, err := readPageInput(a)
+	title, slug, content, allowScripts, message, err := readPageInput(a)
 	if err != nil {
 		if message == "" {
 			return fmt.Errorf("CreateAdminPage: %w", err)
 		}
 		a.ResponseWriter.WriteHeader(http.StatusBadRequest)
 		return renderPage(a, "admin_page_form.html", ViewData{
-			Title: title, FormTitle: title, PageSlug: slug, FormContent: content, Error: message,
+			Title: title, FormTitle: title, PageSlug: slug, FormContent: content,
+			PageAllowScripts: allowScripts, Error: message,
 		})
 	}
 	if !validPageCSRF(a) {
@@ -100,14 +127,15 @@ func CreateAdminPage(a *middleware.Adapter) error {
 	session, _ := currentSession(a.Request)
 	env := models.EnvFromAdapter(a)
 	_, err = env.DB.ExecContext(env.Ctx,
-		`INSERT INTO pages (title, slug, content, status, created_by) VALUES (?, ?, ?, 'draft', ?)`,
-		title, slug, content, session.UserID)
+		`INSERT INTO pages (title, slug, content, status, allow_scripts, created_by) VALUES (?, ?, ?, 'draft', ?, ?)`,
+		title, slug, content, allowScripts, session.UserID)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed: pages.slug") {
 			a.ResponseWriter.WriteHeader(http.StatusBadRequest)
 			return renderPage(a, "admin_page_form.html", ViewData{
 				Title: "新建自定义页面", FormTitle: title, PageSlug: slug, FormContent: content,
-				Error: "这个 URL slug 已被使用，请换一个。",
+				PageAllowScripts: allowScripts,
+				Error:            "这个 URL slug 已被使用，请换一个。",
 			})
 		}
 		return fmt.Errorf("CreateAdminPage: %w", err)
@@ -127,7 +155,7 @@ func UpdateAdminPage(a *middleware.Adapter) error {
 	if !found {
 		return nil
 	}
-	title, slug, content, message, err := readPageInput(a)
+	title, slug, content, allowScripts, message, err := readPageInput(a)
 	if err != nil {
 		if message == "" {
 			return fmt.Errorf("UpdateAdminPage: %w", err)
@@ -137,6 +165,7 @@ func UpdateAdminPage(a *middleware.Adapter) error {
 		data.FormTitle = a.Request.FormValue("title")
 		data.PageSlug = a.Request.FormValue("slug")
 		data.FormContent = content
+		data.PageAllowScripts = allowScripts
 		return renderPage(a, "admin_page_form.html", data)
 	}
 	if !validPageCSRF(a) {
@@ -145,15 +174,16 @@ func UpdateAdminPage(a *middleware.Adapter) error {
 
 	env := models.EnvFromAdapter(a)
 	_, err = env.DB.ExecContext(env.Ctx,
-		`UPDATE pages SET title = ?, slug = ?, content = ?, status = 'draft', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-		title, slug, content, page.ID)
+		`UPDATE pages SET title = ?, slug = ?, content = ?, status = 'draft', allow_scripts = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		title, slug, content, allowScripts, page.ID)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed: pages.slug") {
 			a.ResponseWriter.WriteHeader(http.StatusBadRequest)
 			return renderPage(a, "admin_page_form.html", ViewData{
 				Title: "编辑自定义页面", Page: page, PageEditing: true,
 				FormTitle: title, PageSlug: slug, FormContent: content,
-				Error: "这个 URL slug 已被使用，请换一个。",
+				PageAllowScripts: allowScripts,
+				Error:            "这个 URL slug 已被使用，请换一个。",
 			})
 		}
 		return fmt.Errorf("UpdateAdminPage: %w", err)
@@ -217,9 +247,11 @@ func DeleteAdminPage(a *middleware.Adapter) error {
 
 func ShowStaticPage(a *middleware.Adapter) error {
 	env := models.EnvFromAdapter(a)
-	var content string
-	err := env.DB.QueryRowContext(env.Ctx,
-		`SELECT content FROM pages WHERE slug = ? AND status = 'published'`, a.Request.PathValue("slug")).Scan(&content)
+	var page models.Page
+	err := env.DB.QueryRowContext(env.Ctx, `
+		SELECT title, slug, content, allow_scripts
+		FROM pages WHERE slug = ? AND status = 'published'`, a.Request.PathValue("slug")).
+		Scan(&page.Title, &page.Slug, &page.Content, &page.AllowScripts)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.NotFound(a.ResponseWriter, a.Request)
@@ -227,8 +259,11 @@ func ShowStaticPage(a *middleware.Adapter) error {
 		}
 		return fmt.Errorf("ShowStaticPage: %w", err)
 	}
-	writeIsolatedHTML(a.ResponseWriter, content)
-	return nil
+	tags, pages, err := loadNavigation(env)
+	if err != nil {
+		return fmt.Errorf("ShowStaticPage: load navigation: %w", err)
+	}
+	return writeIsolatedHTML(a.ResponseWriter, page, tags, pages)
 }
 
 func PreviewAdminPage(a *middleware.Adapter) error {
@@ -242,41 +277,83 @@ func PreviewAdminPage(a *middleware.Adapter) error {
 	if !found {
 		return nil
 	}
-	writeIsolatedHTML(a.ResponseWriter, page.Content)
-	return nil
+	tags, pages, err := loadNavigation(models.EnvFromAdapter(a))
+	if err != nil {
+		return fmt.Errorf("PreviewAdminPage: load navigation: %w", err)
+	}
+	return writeIsolatedHTML(a.ResponseWriter, page, tags, pages)
 }
 
-func writeIsolatedHTML(w http.ResponseWriter, content string) {
+func writeIsolatedHTML(w http.ResponseWriter, page models.Page, tags []models.Tag, pages []models.Page) error {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox; base-uri 'none'; form-action 'none'; frame-ancestors 'self'")
-	_, _ = io.WriteString(w, content)
+	scriptPolicy := "script-src 'none'; sandbox"
+	if page.AllowScripts {
+		scriptPolicy = "script-src 'unsafe-inline' https:; sandbox allow-scripts"
+	}
+	w.Header().Set("Content-Security-Policy",
+		"default-src 'none'; "+scriptPolicy+
+			"; style-src 'unsafe-inline' https:; img-src data: https:; font-src data: https:;"+
+			" connect-src https:; frame-src https:; media-src https:; base-uri 'none';"+
+			" form-action 'none'; frame-ancestors 'self'")
+	content, err := injectPageNavigation(page.Content, page.Title, tags, pages)
+	if err != nil {
+		return fmt.Errorf("writeIsolatedHTML: build navigation: %w", err)
+	}
+	if _, err := io.WriteString(w, content); err != nil {
+		return fmt.Errorf("writeIsolatedHTML: write response: %w", err)
+	}
+	return nil
 }
 
-func readPageInput(a *middleware.Adapter) (title, slug, content, message string, err error) {
+func injectPageNavigation(content, title string, tags []models.Tag, pages []models.Page) (string, error) {
+	var navigation bytes.Buffer
+	if err := pageNavigationTemplate.Execute(&navigation, struct {
+		Title string
+		Tags  []models.Tag
+		Pages []models.Page
+	}{Title: title, Tags: tags, Pages: pages}); err != nil {
+		return "", err
+	}
+
+	if body := pageBodyOpenPattern.FindStringIndex(content); body != nil {
+		return content[:body[1]] + navigation.String() + content[body[1]:], nil
+	}
+	if body := pageBodyClosePattern.FindStringIndex(content); body != nil {
+		return content[:body[0]] + navigation.String() + content[body[0]:], nil
+	}
+	if strings.Contains(strings.ToLower(content), "<html") {
+		return content + navigation.String(), nil
+	}
+	return "<!doctype html><html><head><meta charset=\"utf-8\"></head><body>" +
+		navigation.String() + content + "</body></html>", nil
+}
+
+func readPageInput(a *middleware.Adapter) (title, slug, content string, allowScripts bool, message string, err error) {
 	r := a.Request
 	r.Body = http.MaxBytesReader(a.ResponseWriter, r.Body, maxPageBodyBytes)
 	if err := r.ParseMultipartForm(maxPageBodyBytes); err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
-			return "", "", "", "上传内容过大（HTML 上限 1 MiB）。", nil
+			return "", "", "", false, "上传内容过大（HTML 上限 1 MiB）。", nil
 		}
-		return "", "", "", "", fmt.Errorf("parse multipart form: %w", err)
+		return "", "", "", false, "", fmt.Errorf("parse multipart form: %w", err)
 	}
 	if r.MultipartForm != nil {
 		defer r.MultipartForm.RemoveAll()
 	}
+	allowScripts = r.FormValue("allow_scripts") == "true"
 
 	title = strings.TrimSpace(r.FormValue("title"))
 	slug = strings.TrimSpace(r.FormValue("slug"))
 	content = r.FormValue("content")
 	if title == "" || utf8.RuneCountInString(title) > 200 {
-		return title, slug, content, "标题不能为空且不能超过 200 个字符。", nil
+		return title, slug, content, allowScripts, "标题不能为空且不能超过 200 个字符。", nil
 	}
 	if len(slug) > 80 || !pageSlugPattern.MatchString(slug) {
-		return title, slug, content, "URL slug 只能包含小写字母、数字和连字符，且不能以连字符开头或结尾。", nil
+		return title, slug, content, allowScripts, "URL slug 只能包含小写字母、数字和连字符，且不能以连字符开头或结尾。", nil
 	}
 
 	file, header, fileErr := r.FormFile("html_file")
@@ -284,24 +361,24 @@ func readPageInput(a *middleware.Adapter) (title, slug, content, message string,
 		defer file.Close()
 		ext := strings.ToLower(filepath.Ext(header.Filename))
 		if ext != ".html" && ext != ".htm" {
-			return title, slug, content, "只支持 .html 或 .htm 文件。", nil
+			return title, slug, content, allowScripts, "只支持 .html 或 .htm 文件。", nil
 		}
 		if header.Size > maxPageHTMLBytes {
-			return title, slug, content, "HTML 文件过大（上限 1 MiB）。", nil
+			return title, slug, content, allowScripts, "HTML 文件过大（上限 1 MiB）。", nil
 		}
 		uploaded, readErr := io.ReadAll(io.LimitReader(file, maxPageHTMLBytes+1))
 		if readErr != nil {
-			return "", "", "", "", fmt.Errorf("read HTML upload: %w", readErr)
+			return "", "", "", false, "", fmt.Errorf("read HTML upload: %w", readErr)
 		}
 		content = string(uploaded)
 	} else if !errors.Is(fileErr, http.ErrMissingFile) {
-		return "", "", "", "", fmt.Errorf("read HTML upload: %w", fileErr)
+		return "", "", "", false, "", fmt.Errorf("read HTML upload: %w", fileErr)
 	}
 
 	if len(content) == 0 || len(content) > maxPageHTMLBytes || !utf8.ValidString(content) {
-		return title, slug, content, "HTML 内容不能为空，且必须是 UTF-8 编码、大小不超过 1 MiB。", nil
+		return title, slug, content, allowScripts, "HTML 内容不能为空，且必须是 UTF-8 编码、大小不超过 1 MiB。", nil
 	}
-	return title, slug, content, "", nil
+	return title, slug, content, allowScripts, "", nil
 }
 
 func getAdminPage(a *middleware.Adapter) (models.Page, bool, error) {
@@ -312,11 +389,12 @@ func getAdminPage(a *middleware.Adapter) (models.Page, bool, error) {
 	env := models.EnvFromAdapter(a)
 	var page models.Page
 	err = env.DB.QueryRowContext(env.Ctx, `
-		SELECT id, title, slug, content, status,
+		SELECT id, title, slug, content, status, allow_scripts,
 		       strftime('%Y-%m-%d %H:%M', created_at),
 		       COALESCE(strftime('%Y-%m-%d %H:%M', updated_at), '')
 		FROM pages WHERE id = ?`, id).Scan(
-		&page.ID, &page.Title, &page.Slug, &page.Content, &page.Status, &page.CreatedAt, &page.UpdatedAt)
+		&page.ID, &page.Title, &page.Slug, &page.Content, &page.Status,
+		&page.AllowScripts, &page.CreatedAt, &page.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return models.Page{}, false, notFound(a, "页面不存在")
@@ -329,7 +407,8 @@ func getAdminPage(a *middleware.Adapter) (models.Page, bool, error) {
 func pageFormData(page models.Page, message, content string) ViewData {
 	data := ViewData{
 		Title: "编辑自定义页面", Page: page, PageEditing: page.ID > 0,
-		FormTitle: page.Title, PageSlug: page.Slug, FormContent: page.Content, Error: message,
+		FormTitle: page.Title, PageSlug: page.Slug, FormContent: page.Content,
+		PageAllowScripts: page.AllowScripts, Error: message,
 	}
 	if content != "" {
 		data.FormContent = content

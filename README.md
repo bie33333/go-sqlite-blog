@@ -61,8 +61,9 @@ docker compose logs -f caddy
 
 文章正文使用 Markdown 编写，服务端用 [goldmark](https://github.com/yuin/goldmark) 渲染（GFM 扩展）：
 
-- 支持：标题、粗体/斜体/删除线、行内代码与代码块（带语言高亮 class）、有序/无序列表、引用、表格、链接、图片、任务列表、分隔线，以及 Mermaid 图表。
+- 支持：标题、粗体/斜体/删除线、行内代码与代码块（代码块语法高亮）、有序/无序列表、引用、表格、链接、图片、任务列表、分隔线、Mermaid 图表和 LaTeX 公式。
 - Mermaid 使用 ` ```mermaid` 围栏代码，在文章详情页由浏览器按需从 jsDelivr 加载 Mermaid 渲染；若 CDN 不可用，仍会显示原始图表代码。
+- 代码高亮使用 highlight.js，公式使用 MathJax；只在需要的文章详情页加载对应 CDN 资源。
 - 单个换行会渲染为 `<br>`（`WithHardWraps`），符合博客书写习惯。
 - **原始 HTML 标签会被丢弃**（goldmark 默认不开启 `WithUnsafe`），渲染结果可以安全地作为 HTML 输出，无需额外的 XSS 过滤。
 - 首页列表的摘要由 Markdown 渲染后剥离标签得到，因此不会出现 `#`、`**` 之类的标记。
@@ -175,7 +176,7 @@ docker compose logs -f caddy
 
 管理员可在 `/admin/pages` 新建自定义页面，直接粘贴完整 HTML 文档或上传 `.html` / `.htm` 文件（UTF-8，最大 1 MiB）。页面保存为草稿，可在隔离预览中检查后发布；页面 URL 为 `/p/{slug}`。编辑已发布页面会先撤回为草稿，需再次发布才会公开。
 
-页面按原始 HTML 文档返回，不套博客模板，因此可保留教程页面自带的 `<style>`、代码示例、表格和页内目录锚点。安全策略禁用页面 JavaScript、外部资源、表单及跳出页面的导航；允许内联 CSS，以支持自包含的教程样式。页面写操作要求管理员登录并通过 CSRF token 校验。
+页面按原始 HTML 文档返回，不套博客模板，因此可保留教程页面自带的 `<style>`、代码示例、表格和页内目录锚点；系统会在顶部注入站点导航和面包屑。页面默认禁用 JavaScript；管理员可为可信页面单独允许脚本。页面始终使用 sandbox，不授予同源访问权限，并禁止表单提交与顶层跳转。启用脚本后可加载 HTTPS 资源，但钱包扩展等功能可能因隔离源而不可用。页面写操作要求管理员登录并通过 CSRF token 校验。
 
 ### 已实现路由
 
@@ -189,6 +190,7 @@ docker compose logs -f caddy
 | POST | `/login` | 登录（成功后写入签名 cookie session） | 公开 |
 | POST | `/logout` | 退出登录 | 公开 |
 | GET | `/` | 文章列表（空库显示“暂无文章”） | 公开 |
+| GET | `/?tag={id}` | 按文章标签筛选列表 | 公开 |
 | GET | `/post/{id}` | 文章详情 + 已通过审核的评论 | 公开 |
 | GET | `/post/new` | 发文表单（未登录 302 到 `/login`） | 登录 |
 | POST | `/post` | 发布文章 | 登录 |
@@ -210,6 +212,7 @@ docker compose logs -f caddy
 | GET | `/p/{slug}` | 查看已发布 HTML 页面 | 公开 |
 | POST | `/admin/comments/{id}/approve` | 通过评论审核（`approved` 置 1） | admin |
 | POST | `/admin/articles/{id}/approve` | 审核并发布文章 | admin |
+| POST | `/admin/articles/{id}/pin` | 置顶或取消置顶文章 | admin + CSRF |
 | POST | `/admin/comments/{id}/delete` | 删除评论 | admin |
 | POST | `/admin/articles/{id}/delete` | 删除文章（级联清理评论/修订/标签/点赞） | admin |
 
@@ -263,6 +266,16 @@ go build -o go-sqlite-blog
 
 `SESSION_SECRET` 用于签名登录 cookie；未设置时每次启动随机生成，因此重启后需要重新登录（不设置也能用，但重启会掉登录态）。
 
+### 导航、标签与置顶
+
+- 文章编辑表单支持逗号分隔的标签，每篇最多 10 个；详情页和列表页展示标签，点击标签可筛选文章。
+- 管理员可在文章详情页或管理后台置顶文章；置顶文章排在首页最前。
+- 全站导航菜单列出已发布文章标签和自定义页面；标准页面、文章详情页及独立 HTML 页面显示面包屑。
+
+### 独立 HTML 页面脚本
+
+`/p/{slug}` 页面默认在隔离沙箱中禁用 JavaScript。管理员可在页面编辑表单勾选「允许此页面运行 JavaScript」，以运行页面自带脚本、加载 MathJax 或模块代码。页面仍保持浏览器 sandbox 隔离，不授予同源访问权限；因此不要在页面里放秘密信息，Phantom 等钱包扩展可能无法与此类隔离页面交互。该页面允许加载 HTTPS 脚本和网络资源。
+
 ### 已知限制
 
 - `articles` 表没有作者字段：作者信息保存在 `article_revisions` 的第一条记录（创建时写入的初版，`edited_by`）中，列表/详情页据此显示作者。
@@ -270,10 +283,10 @@ go build -o go-sqlite-blog
 - 普通用户新建或修改的文章默认待审核，只有管理员审核通过后才对其他访客公开。管理员创建或修改的文章会直接公开。升级时已有文章保留已发布状态。
 - 评论一律先进入「待审核」，未通过审核前只有管理员能在详情页看到；作者本人提交后会看到「等待审核」的提示。
 - `users.role_id` 的建表默认值仍是 1（admin）。应用层注册已固定写 3（author），但如果你绕过应用直接 `INSERT` 用户，记得显式指定 `role_id`。
-- 管理后台表单没有 CSRF token，依赖 session cookie 的 `SameSite=Lax` 阻止跨站 POST。若要对外部署，建议补 CSRF token。
+- 评论与文章删除/审核等既有管理表单仍依赖 session cookie 的 `SameSite=Lax`；页面管理和置顶操作使用 CSRF token。
 - 图片只有上传，**没有图片管理页**：删除图片需要手动删掉 `static/uploads/` 下的文件（`media` 表的记录也会残留）。
 - 上传文件名由服务端随机生成，原始文件名只用于 `alt` 文本和 `media.file_name`，因此同名文件不会互相覆盖。
-- 分类 / 标签 / 静态页面 / 搜索 / 分页等表结构已存在，但尚未实现对应功能。
+- 分类、搜索和分页仍未实现；标签与静态页面已实现。
 
 ## Table of Contents
 

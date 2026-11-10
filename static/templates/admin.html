@@ -84,9 +84,16 @@
             <p class="meta">
                 <a href="/post/{{.ID}}">{{.Title}}</a>
                 · {{if .Author}}{{.Author}} · {{end}}{{.CreatedAt}}
+                {{if .Pinned}}<span class="pinned-label">置顶</span>{{end}}
                 {{if not .Approved}}<span class="badge">待审核</span>{{end}}
             </p>
             <div class="actions">
+                <form method="POST" action="/admin/articles/{{.ID}}/pin">
+                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                    <input type="hidden" name="pinned" value="{{if .Pinned}}false{{else}}true{{end}}">
+                    <input type="hidden" name="next" value="/admin">
+                    <button class="btn small" type="submit">{{if .Pinned}}取消置顶{{else}}置顶{{end}}</button>
+                </form>
                 {{if not .Approved}}
                 <form method="POST" action="/admin/articles/{{.ID}}/approve">
                     <button class="btn small primary" type="submit">通过并发布</button>
@@ -98,6 +105,7 @@
                     <button class="btn small" type="submit">删除文章</button>
                 </form>
             </div>
+            {{if .Tags}}<div class="tag-list">{{range .Tags}}<a class="tag-chip" href="/?tag={{.ID}}">{{.Name}}</a>{{end}}</div>{{end}}
         </div>
         {{end}}
     {{else}}

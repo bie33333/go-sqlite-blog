@@ -30,6 +30,10 @@ type ViewData struct {
 	// 页面数据
 	Articles       []models.Article
 	Article        models.Article
+	NavTags        []models.Tag
+	NavPages       []models.Page
+	Breadcrumbs    []models.Breadcrumb
+	SelectedTag    models.Tag
 	ArticleHTML    template.HTML
 	Comments       []models.Comment
 	AdminComments  []models.Comment
@@ -38,13 +42,15 @@ type ViewData struct {
 	EditingArticle bool
 
 	// 表单回显
-	FormTitle   string
-	FormContent string
-	PageSlug    string
-	Page        models.Page
-	Pages       []models.Page
-	CSRFToken   string
-	PageEditing bool
+	FormTitle        string
+	FormContent      string
+	FormTags         string
+	PageSlug         string
+	PageAllowScripts bool
+	Page             models.Page
+	Pages            []models.Page
+	CSRFToken        string
+	PageEditing      bool
 }
 
 // templateCache 缓存已解析的模板，避免每次请求都读盘。
@@ -73,6 +79,12 @@ func renderPage(a *middleware.Adapter, page string, data ViewData) error {
 	tmpl, err := loadTemplates(page)
 	if err != nil {
 		return err
+	}
+	if len(data.Breadcrumbs) == 0 && data.Title != "" {
+		data.Breadcrumbs = []models.Breadcrumb{
+			{Title: "首页", URL: "/"},
+			{Title: data.Title},
+		}
 	}
 
 	if session, ok := middleware.GetSession(a.Request); ok {
@@ -106,6 +118,11 @@ func renderPage(a *middleware.Adapter, page string, data ViewData) error {
 		data.RoleName = ""
 		data.RoleSlug = ""
 		data.IsAdmin = false
+	}
+
+	data.NavTags, data.NavPages, err = loadNavigation(models.EnvFromAdapter(a))
+	if err != nil {
+		return fmt.Errorf("renderPage(%s): %w", page, err)
 	}
 
 	a.ResponseWriter.Header().Set("Content-Type", "text/html; charset=utf-8")

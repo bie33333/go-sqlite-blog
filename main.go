@@ -144,6 +144,7 @@ func setupRouter(adapter *middleware.Adapter) *http.ServeMux {
 	mux.Handle("POST /admin/comments/{id}/approve", adapter.HTTPToContextHandler(handlers.ApproveComment))
 	mux.Handle("POST /admin/comments/{id}/delete", adapter.HTTPToContextHandler(handlers.DeleteComment))
 	mux.Handle("POST /admin/articles/{id}/approve", adapter.HTTPToContextHandler(handlers.ApproveArticle))
+	mux.Handle("POST /admin/articles/{id}/pin", adapter.HTTPToContextHandler(handlers.SetArticlePinned))
 	mux.Handle("POST /admin/articles/{id}/delete", adapter.HTTPToContextHandler(handlers.DeleteArticle))
 
 	mux.Handle("GET /p/{slug}", adapter.HTTPToContextHandler(handlers.ShowStaticPage))

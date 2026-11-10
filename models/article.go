@@ -10,6 +10,8 @@ type Article struct {
 	Author    string
 	CreatedAt string
 	Approved  bool
+	Pinned    bool
+	Tags      []Tag
 }
 
 // Comment 对应 tables.sql 中的 comments 表。

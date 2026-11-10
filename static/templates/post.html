@@ -1,7 +1,13 @@
 {{define "content"}}
 <article class="card">
     <h1>{{.Article.Title}}</h1>
+    {{if .Article.Pinned}}<p class="pinned-label">置顶文章</p>{{end}}
     <p class="meta">{{if .Article.Author}}作者：{{.Article.Author}} · {{end}}{{.Article.CreatedAt}}</p>
+    {{if .Article.Tags}}
+    <div class="tag-list" aria-label="文章标签">
+        {{range .Article.Tags}}<a class="tag-chip" href="/?tag={{.ID}}">{{.Name}}</a>{{end}}
+    </div>
+    {{end}}
     {{if not .Article.Approved}}<p class="alert success">文章已提交，等待管理员审核后发布。</p>{{end}}
     {{if .CanEditArticle}}
     <div class="actions">
@@ -11,6 +17,12 @@
     {{if .IsAdmin}}
     <div class="actions">
         <a class="btn small" href="/admin">管理后台</a>
+        <form method="POST" action="/admin/articles/{{.ArticleID}}/pin">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <input type="hidden" name="pinned" value="{{if .Article.Pinned}}false{{else}}true{{end}}">
+            <input type="hidden" name="next" value="/post/{{.ArticleID}}">
+            <button class="btn small" type="submit">{{if .Article.Pinned}}取消置顶{{else}}置顶文章{{end}}</button>
+        </form>
         <form method="POST" action="/admin/articles/{{.ArticleID}}/delete"
               onsubmit="return confirm('删除文章会同时删除其评论，确定继续？');">
             <input type="hidden" name="next" value="/">
@@ -69,35 +81,90 @@
 </section>
 <script>
 (function () {
-    var codeBlocks = document.querySelectorAll('.markdown pre > code.language-mermaid');
-    if (!codeBlocks.length) return;
+    var markdown = document.querySelector('.markdown');
+    if (!markdown) return;
 
-    var script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js';
-    script.onload = function () {
-        var diagrams = [];
-        for (var i = 0; i < codeBlocks.length; i++) {
-            var code = codeBlocks[i];
-            var diagram = document.createElement('div');
-            diagram.className = 'mermaid';
-            diagram.textContent = code.textContent;
-            code.parentNode.replaceWith(diagram);
-            diagrams.push(diagram);
+    function loadScript(src, onload, description) {
+        var script = document.createElement('script');
+        script.src = src;
+        script.onload = onload;
+        script.onerror = function () { console.error(description + '加载失败。'); };
+        document.head.appendChild(script);
+    }
+
+    var mermaidBlocks = markdown.querySelectorAll('pre > code.language-mermaid');
+    if (mermaidBlocks.length) {
+        loadScript('https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js', function () {
+            var diagrams = [];
+            var originals = [];
+            for (var i = 0; i < mermaidBlocks.length; i++) {
+                var code = mermaidBlocks[i];
+                var pre = code.parentNode;
+                var diagram = document.createElement('div');
+                diagram.className = 'mermaid';
+                diagram.textContent = code.textContent;
+                pre.replaceWith(diagram);
+                diagrams.push(diagram);
+                originals.push(pre);
+            }
+
+            window.mermaid.initialize({
+                startOnLoad: false,
+                securityLevel: 'strict',
+                theme: document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default'
+            });
+            window.mermaid.run({ nodes: diagrams }).catch(function (error) {
+                console.error('Mermaid 图表渲染失败：', error);
+                for (var i = 0; i < diagrams.length; i++) {
+                    if (diagrams[i].isConnected) diagrams[i].replaceWith(originals[i]);
+                }
+            });
+        }, 'Mermaid 渲染库');
+    }
+
+    var codeBlocks = markdown.querySelectorAll('pre > code[class*="language-"]:not(.language-mermaid)');
+    if (codeBlocks.length) {
+        var highlightTheme = document.createElement('link');
+        highlightTheme.rel = 'stylesheet';
+        function updateHighlightTheme() {
+            highlightTheme.href = 'https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/styles/github' +
+                (document.documentElement.dataset.theme === 'dark' ? '-dark' : '') + '.min.css';
         }
+        updateHighlightTheme();
+        var themeToggle = document.getElementById('theme-toggle');
+        if (themeToggle) {
+            themeToggle.addEventListener('click', function () {
+                window.setTimeout(updateHighlightTheme, 0);
+            });
+        }
+        document.head.appendChild(highlightTheme);
+        loadScript('https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/lib/common.min.js', function () {
+            for (var i = 0; i < codeBlocks.length; i++) {
+                window.hljs.highlightElement(codeBlocks[i]);
+            }
+        }, '代码高亮库');
+    }
 
-        window.mermaid.initialize({
-            startOnLoad: false,
-            securityLevel: 'strict',
-            theme: document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default'
-        });
-        window.mermaid.run({ nodes: diagrams }).catch(function (error) {
-            console.error('Mermaid 图表渲染失败：', error);
-        });
-    };
-    script.onerror = function () {
-        console.error('Mermaid 渲染库加载失败。');
-    };
-    document.head.appendChild(script);
+    var source = markdown.textContent;
+    if (/\\\(|\\\[|\$\$|(^|[^\\])\$[^$\n]+\$/m.test(source)) {
+        window.MathJax = {
+            tex: {
+                inlineMath: [['\\(', '\\)'], ['$', '$']],
+                displayMath: [['\\[', '\\]'], ['$$', '$$']],
+                processEscapes: true
+            },
+            startup: {
+                typeset: false,
+                ready: function () {
+                    window.MathJax.startup.defaultReady();
+                    window.MathJax.typesetPromise([markdown]).catch(function (error) {
+                        console.error('LaTeX 公式渲染失败：', error);
+                    });
+                }
+            }
+        };
+        loadScript('https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js', null, 'MathJax');
+    }
 })();
 </script>
 {{end}}

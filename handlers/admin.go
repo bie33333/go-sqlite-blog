@@ -147,6 +147,40 @@ func ApproveArticle(a *middleware.Adapter) error {
 	return nil
 }
 
+func SetArticlePinned(a *middleware.Adapter) error {
+	if ok, err := requireAdmin(a); !ok {
+		return err
+	}
+	if !validPageCSRF(a) {
+		return pageForbidden(a)
+	}
+
+	id, err := strconv.ParseInt(a.Request.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		return notFound(a, "文章不存在")
+	}
+	pinned, err := strconv.ParseBool(a.Request.FormValue("pinned"))
+	if err != nil {
+		http.Error(a.ResponseWriter, "置顶状态无效", http.StatusBadRequest)
+		return nil
+	}
+
+	env := models.EnvFromAdapter(a)
+	result, err := env.DB.ExecContext(env.Ctx,
+		`UPDATE articles SET pinned = ? WHERE id = ?`, pinned, id)
+	if err != nil {
+		return fmt.Errorf("SetArticlePinned: %w", err)
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return fmt.Errorf("SetArticlePinned: %w", err)
+	} else if affected == 0 {
+		return notFound(a, "文章不存在")
+	}
+
+	http.Redirect(a.ResponseWriter, a.Request, adminRedirectTarget(a.Request), http.StatusSeeOther)
+	return nil
+}
+
 // DeleteComment 删除评论
 func DeleteComment(a *middleware.Adapter) error {
 	if ok, err := requireAdmin(a); !ok {
@@ -276,10 +310,17 @@ func listAllArticles(env *models.Env) ([]models.Article, error) {
 	articles := make([]models.Article, 0)
 	for rows.Next() {
 		var article models.Article
-		if err := rows.Scan(&article.ID, &article.Title, &article.Content, &article.CreatedAt, &article.Author, &article.Approved); err != nil {
+		if err := rows.Scan(&article.ID, &article.Title, &article.Content, &article.CreatedAt,
+			&article.Author, &article.Approved, &article.Pinned); err != nil {
 			return nil, err
 		}
 		articles = append(articles, article)
 	}
-	return articles, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := attachArticleTags(env, articles); err != nil {
+		return nil, err
+	}
+	return articles, nil
 }

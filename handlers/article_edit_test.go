@@ -28,7 +28,10 @@ func TestArticleEditingPermissionsAndUpdates(t *testing.T) {
 
 	_, err = testDB.Exec(`
 		CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, role_id INTEGER);
-		CREATE TABLE articles (id INTEGER PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, approved BOOLEAN NOT NULL DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+		CREATE TABLE articles (id INTEGER PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, approved BOOLEAN NOT NULL DEFAULT 1, pinned BOOLEAN NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+		CREATE TABLE tags (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, slug TEXT NOT NULL UNIQUE);
+		CREATE TABLE article_tags (article_id INTEGER NOT NULL, tag_id INTEGER NOT NULL, PRIMARY KEY (article_id, tag_id));
+		CREATE TABLE pages (id INTEGER PRIMARY KEY, title TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, content TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'published', allow_scripts BOOLEAN NOT NULL DEFAULT 0);
 		CREATE TABLE article_revisions (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			article_id INTEGER NOT NULL,
@@ -123,7 +126,7 @@ func TestArticleEditingPermissionsAndUpdates(t *testing.T) {
 	})
 
 	t.Run("ordinary articles stay pending until admin approval", func(t *testing.T) {
-		form := url.Values{"title": {"Pending article"}, "content": {"Review me"}}.Encode()
+		form := url.Values{"title": {"Pending article"}, "content": {"Review me"}, "tags": {"Solana, 教程"}}.Encode()
 		response := serveEditTestRequest(t, testDB, 1, http.MethodPost, "/post", form)
 		if response.Code != http.StatusSeeOther {
 			t.Fatalf("expected status %d, got %d", http.StatusSeeOther, response.Code)
@@ -169,6 +172,33 @@ func TestArticleEditingPermissionsAndUpdates(t *testing.T) {
 		if !approved {
 			t.Fatal("admin-created articles should publish immediately")
 		}
+		var tagCount int
+		if err := testDB.QueryRow(`
+			SELECT COUNT(*) FROM article_tags at
+			JOIN articles a ON a.id = at.article_id
+			WHERE a.id = (SELECT MAX(id) FROM articles WHERE title = 'Pending article')`).Scan(&tagCount); err != nil {
+			t.Fatal(err)
+		}
+		if tagCount != 2 {
+			t.Fatalf("expected article tags to be saved, got %d", tagCount)
+		}
+	})
+
+	t.Run("admin can pin and unpin an article", func(t *testing.T) {
+		for _, pinned := range []string{"true", "false"} {
+			form := url.Values{"pinned": {pinned}, "csrf_token": {"test-csrf"}}.Encode()
+			response := serveEditTestRequest(t, testDB, 3, http.MethodPost, "/admin/articles/1/pin", form)
+			if response.Code != http.StatusSeeOther {
+				t.Fatalf("pin=%s returned status %d", pinned, response.Code)
+			}
+			var got bool
+			if err := testDB.QueryRow(`SELECT pinned FROM articles WHERE id = 1`).Scan(&got); err != nil {
+				t.Fatal(err)
+			}
+			if got != (pinned == "true") {
+				t.Fatalf("pin=%s left pinned=%v", pinned, got)
+			}
+		}
 	})
 }
 
@@ -189,7 +219,7 @@ func serveEditTestRequest(t *testing.T, db *sql.DB, userID int64, method, path, 
 	}
 
 	cookieRecorder := httptest.NewRecorder()
-	if err := middleware.SetSession(cookieRecorder, middleware.Session{UserID: userID}); err != nil {
+	if err := middleware.SetSession(cookieRecorder, middleware.Session{UserID: userID, CSRFToken: "test-csrf"}); err != nil {
 		t.Fatal(err)
 	}
 	request.AddCookie(cookieRecorder.Result().Cookies()[0])
@@ -207,7 +237,11 @@ func serveEditTestRequest(t *testing.T, db *sql.DB, userID int64, method, path, 
 	case path == "/post":
 		handler = CreateArticle
 	case strings.HasPrefix(path, "/admin/articles/"):
-		handler = ApproveArticle
+		if strings.HasSuffix(path, "/pin") {
+			handler = SetArticlePinned
+		} else {
+			handler = ApproveArticle
+		}
 	case method == http.MethodGet && strings.HasSuffix(path, "/edit"):
 		handler = ShowEditArticle
 	case method == http.MethodGet:
